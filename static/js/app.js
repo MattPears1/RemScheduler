@@ -240,36 +240,24 @@ async function processAudio(audioBlob) {
     console.log('🎙️ Processing audio blob...');
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.webm');
-    console.log('📤 FormData created with audio file');
     
     try {
-        console.log('🚀 Sending audio to server for transcription...');
         const response = await fetch('/api/speech-to-task', {
             method: 'POST',
             body: formData
         });
-        console.log('📡 Response status:', response.status, response.statusText);
         
         if (response.ok) {
             const data = await response.json();
-            console.log('✅ Transcription successful:', data);
             document.getElementById('task-text').value = data.transcribed_text;
             document.getElementById('proceed-schedule').disabled = false;
             state.currentTask = data;
         } else {
-            const errorText = await response.text();
-            console.error('❌ Failed to transcribe audio:', response.status, errorText);
-            try {
-                const errorData = JSON.parse(errorText);
-                alert('Failed to transcribe audio: ' + (errorData.error || 'Unknown error'));
-            } catch {
-                alert('Failed to transcribe audio: ' + errorText);
-            }
+            const errorData = await response.json();
+            alert('Failed to transcribe audio: ' + (errorData.error || 'Unknown error'));
         }
     } catch (error) {
-        console.error('❌ Transcription error:', error);
-        console.error('Error details:', error.message, error.stack);
-        alert('Failed to process audio: ' + error.message);
+        alert('Failed to process audio. Please try again.');
     }
 }
 
