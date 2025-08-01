@@ -256,6 +256,10 @@ def register_websocket_handlers_v2(socketio):
         
         for agent_id, job_groups in agent_jobs.items():
             current_app.logger.info(f"Emitting jobs for agent {agent_id}: {len(job_groups)} groups")
+            # Log details of first job group for debugging
+            if job_groups and len(job_groups) > 0:
+                first_group = job_groups[0]
+                current_app.logger.info(f"First job group: {first_group.get('job_group_id')} with {len(first_group.get('jobs', []))} jobs")
             emit('jobs_updated', {
                 'agent_id': agent_id,
                 'job_groups': job_groups
@@ -267,5 +271,21 @@ def register_websocket_handlers_v2(socketio):
                 'agent_id': agent_id,
                 'transcripts': transcripts
             })
+    
+    @socketio.on('get_jobs')
+    def handle_web_get_jobs(data=None):
+        """Forward job request to all connected agents"""
+        current_app.logger.info("Web client requested jobs update")
+        # Forward to all connected agents
+        for sid in connected_agents:
+            socketio.emit('get_jobs', {}, room=sid)
+    
+    @socketio.on('get_transcripts')
+    def handle_web_get_transcripts(data=None):
+        """Forward transcript request to all connected agents"""
+        current_app.logger.info("Web client requested transcripts update")
+        # Forward to all connected agents
+        for sid in connected_agents:
+            socketio.emit('get_transcripts', {}, room=sid)
     
     return socketio

@@ -25,18 +25,22 @@ export const SavedMessagesScreen: React.FC = () => {
 
   const { savedMessages } = useSocketStore();
   
-  const { data: messages = [], isLoading } = useQuery({
+  // Use socket data directly if available, otherwise use query
+  const queryResult = useQuery({
     queryKey: ['saved-messages'],
     queryFn: apiService.getSavedMessages,
-    // Use socket data if available, otherwise fetch from API
-    initialData: savedMessages,
   });
+  
+  // Prefer socket data over query data
+  const messages = savedMessages && savedMessages.length > 0 ? savedMessages : (queryResult.data || []);
+  const isLoading = queryResult.isLoading;
   
   // Debug logging
   React.useEffect(() => {
     console.log('Socket savedMessages:', savedMessages);
-    console.log('Query messages:', messages);
-  }, [savedMessages, messages]);
+    console.log('Query data:', queryResult.data);
+    console.log('Using messages:', messages);
+  }, [savedMessages, queryResult.data, messages]);
 
   const deleteMutation = useMutation({
     mutationFn: apiService.deleteSavedMessage,

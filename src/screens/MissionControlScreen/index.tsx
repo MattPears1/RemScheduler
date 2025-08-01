@@ -22,19 +22,24 @@ export const MissionControlScreen: React.FC = () => {
   const [editingJob, setEditingJob] = useState<any>(null);
   const [rescheduleJob, setRescheduleJob] = useState<any>(null);
 
-  const { data: jobGroups = [], isLoading, refetch } = useQuery({
+  // Use socket data directly if available, otherwise use query
+  const queryResult = useQuery({
     queryKey: ['jobs'],
     queryFn: apiService.getJobs,
     refetchInterval: 5000,
-    // Use socket data if available
-    initialData: jobs,
   });
+  
+  // Prefer socket data over query data
+  const jobGroups = jobs && jobs.length > 0 ? jobs : (queryResult.data || []);
+  const isLoading = queryResult.isLoading;
+  const refetch = queryResult.refetch;
   
   // Debug logging
   React.useEffect(() => {
     console.log('Socket jobs:', jobs);
-    console.log('Query jobGroups:', jobGroups);
-  }, [jobs, jobGroups]);
+    console.log('Query data:', queryResult.data);
+    console.log('Using jobGroups:', jobGroups);
+  }, [jobs, queryResult.data, jobGroups]);
   
   const handleRefresh = async () => {
     haptic.success();

@@ -35,6 +35,13 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       console.log('Connected to server');
       socket.emit('web_connect');
       toast.success('Connected to server');
+      
+      // Request fresh data after connection
+      setTimeout(() => {
+        socket.emit('get_jobs');
+        socket.emit('get_transcripts');
+        console.log('Requested fresh data from server');
+      }, 500);
     });
 
     socket.on('windows_updated', (data: { windows: Window[] }) => {
