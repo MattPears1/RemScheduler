@@ -34,3 +34,14 @@ local-agent/local_messages.db*
 
 # Old apps (reference only)
 old_apps_to_combine/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Build
+dist/
+build/
