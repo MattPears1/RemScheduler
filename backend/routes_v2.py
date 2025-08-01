@@ -314,6 +314,20 @@ def cancel_job(job_id):
         current_app.logger.error(f"Cancel job error: {str(e)}")
         return jsonify({'error': 'Failed to cancel job'}), 500
 
+@api_routes_v2.route('/jobs/<int:job_id>/delete-history', methods=['DELETE'])
+@login_required
+def delete_job_history(job_id):
+    """Delete a sent job from history"""
+    try:
+        from app import socketio
+        socketio.emit('delete_job_history', {'job_id': job_id})
+        
+        return jsonify({'message': 'Delete request sent to agent'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Delete job history error: {str(e)}")
+        return jsonify({'error': 'Failed to delete job history'}), 500
+
 @api_routes_v2.route('/jobs/<int:job_id>/reschedule', methods=['POST'])
 @login_required
 def reschedule_job(job_id):
@@ -349,6 +363,31 @@ def get_tasks():
         all_transcripts.extend(transcripts)
     
     return jsonify(all_transcripts), 200
+
+@api_routes_v2.route('/save-message', methods=['POST'])
+@login_required
+def save_message():
+    """Save a message to the agent's transcript database"""
+    try:
+        data = request.json
+        message_text = data.get('text', '').strip()
+        
+        if not message_text:
+            return jsonify({'error': 'Message text is required'}), 400
+        
+        from app import socketio
+        
+        # Send save request to agent
+        socketio.emit('save_transcript', {
+            'text': message_text,
+            'created_at': datetime.utcnow().isoformat()
+        })
+        
+        return jsonify({'message': 'Save request sent to agent'}), 201
+        
+    except Exception as e:
+        current_app.logger.error(f"Save message error: {str(e)}")
+        return jsonify({'error': 'Failed to save message'}), 500
 
 @api_routes_v2.route('/windows', methods=['GET'])
 @login_required

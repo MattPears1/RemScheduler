@@ -59,60 +59,37 @@
         </div>
     </div>
 
-    <!-- Create Task Screen -->
+    <!-- Create Task Screen (Combined with Schedule) -->
     <div id="create-task-screen" class="screen">
         <header>
             <button class="back-btn" data-target="dashboard">← Back</button>
-            <h1>Create New Task</h1>
+            <h1>Create & Schedule Task</h1>
         </header>
 
-        <div class="task-creation">
-            <div class="dictation-area">
-                <button id="record-btn" class="record-button">
-                    <span class="mic-icon">🎤</span>
-                    <span class="record-text">Start Recording</span>
-                </button>
-                <div class="recording-indicator" style="display: none;">
-                    <div class="pulse"></div>
-                    <span>Recording...</span>
+        <div class="task-creation-combined">
+            <!-- Message Section -->
+            <div class="section-card">
+                <h3>1. Your Message</h3>
+                <div class="dictation-area">
+                    <button id="record-btn" class="record-button">
+                        <span class="mic-icon">🎤</span>
+                        <span class="record-text">Start Recording</span>
+                    </button>
+                    <div class="recording-indicator" style="display: none;">
+                        <div class="pulse"></div>
+                        <span>Recording...</span>
+                    </div>
                 </div>
+
+                <textarea id="task-text" placeholder="Or type your command here..." rows="4"></textarea>
+                
+                <button id="save-message-btn" class="secondary-btn" style="margin-top: 0.5rem;">💾 Save Message</button>
             </div>
 
-            <textarea id="task-text" placeholder="Or type your command here..." rows="6"></textarea>
-
-            <button id="proceed-schedule" class="primary-btn" disabled>Proceed to Schedule</button>
-        </div>
-    </div>
-
-    <!-- Schedule Screen -->
-    <div id="schedule-screen" class="screen">
-        <header>
-            <button class="back-btn" data-target="create-task">← Back</button>
-            <h1>Schedule Task</h1>
-        </header>
-
-        <div class="schedule-options">
-            <h3>How will this task be scheduled?</h3>
-            
-            <div class="schedule-type-cards">
-                <label class="type-card">
-                    <input type="radio" name="schedule-type" value="single" checked>
-                    <div class="card-content">
-                        <h4>Single Message</h4>
-                        <p>This message will repeat</p>
-                    </div>
-                </label>
-
-                <label class="type-card">
-                    <input type="radio" name="schedule-type" value="sequence">
-                    <div class="card-content">
-                        <h4>Message Sequence</h4>
-                        <p>Different messages in order</p>
-                    </div>
-                </label>
-            </div>
-
-            <div class="schedule-form">
+            <!-- Schedule Section -->
+            <div class="section-card">
+                <h3>2. Schedule Details</h3>
+                
                 <div class="form-group">
                     <label>Target Window</label>
                     <select id="target-window">
@@ -125,30 +102,42 @@
                     <input type="datetime-local" id="start-time">
                 </div>
 
-                <div class="form-group">
-                    <label>Repetitions</label>
-                    <input type="number" id="repetitions" value="1" min="1">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Repetitions</label>
+                        <input type="number" id="repetitions" value="1" min="1">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Interval</label>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="number" id="interval-value" value="60" min="1" style="flex: 1;">
+                            <select id="interval-unit" style="width: auto;">
+                                <option value="seconds">Seconds</option>
+                                <option value="minutes" selected>Minutes</option>
+                                <option value="hours">Hours</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Interval</label>
-                    <input type="number" id="interval-value" value="60" min="1">
-                    <select id="interval-unit">
-                        <option value="seconds">Seconds</option>
-                        <option value="minutes" selected>Minutes</option>
-                        <option value="hours">Hours</option>
-                    </select>
+                <div class="schedule-type-toggle">
+                    <label>
+                        <input type="checkbox" id="use-sequence">
+                        Use different messages for each repetition
+                    </label>
                 </div>
 
                 <div id="sequence-builder" style="display: none;">
                     <h4>Message Steps</h4>
                     <div id="sequence-steps"></div>
                 </div>
-
-                <button id="submit-schedule" class="primary-btn">Schedule Task</button>
             </div>
+
+            <button id="submit-schedule" class="primary-btn" disabled>Schedule Task</button>
         </div>
     </div>
+
 
     <!-- Mission Control Screen -->
     <div id="mission-control-screen" class="screen">

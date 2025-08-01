@@ -152,6 +152,7 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 // Dashboard actions
 document.getElementById('create-task-card').addEventListener('click', () => {
     showScreen('create-task');
+    updateWindowsList(); // Load windows immediately
 });
 
 document.getElementById('mission-control-card').addEventListener('click', () => {
@@ -259,32 +260,61 @@ async function processAudio(audioBlob) {
     }
 }
 
-// Task text input
+// Task text input - enable schedule button when we have text and window selected
 document.getElementById('task-text').addEventListener('input', (e) => {
-    document.getElementById('proceed-schedule').disabled = !e.target.value.trim();
+    updateScheduleButtonState();
 });
 
-// Proceed to schedule
-document.getElementById('proceed-schedule').addEventListener('click', () => {
-    const taskText = document.getElementById('task-text').value.trim();
-    if (taskText) {
-        state.currentTask = { transcribed_text: taskText };
-        showScreen('schedule');
-        updateWindowsList();
+// Target window change
+document.getElementById('target-window').addEventListener('change', (e) => {
+    updateScheduleButtonState();
+});
+
+// Save message button
+document.getElementById('save-message-btn').addEventListener('click', async () => {
+    const messageText = document.getElementById('task-text').value.trim();
+    if (!messageText) {
+        alert('Please enter a message to save');
+        return;
+    }
+    
+    try {
+        // Save to local agent's database through API
+        const response = await fetch('/api/save-message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: messageText })
+        });
+        
+        if (response.ok) {
+            alert('Message saved successfully!');
+        } else {
+            alert('Failed to save message');
+        }
+    } catch (error) {
+        console.error('Save message error:', error);
+        alert('Failed to save message');
     }
 });
 
-// Schedule type selection
-document.querySelectorAll('input[name="schedule-type"]').forEach(radio => {
-    radio.addEventListener('change', (e) => {
-        const sequenceBuilder = document.getElementById('sequence-builder');
-        if (e.target.value === 'sequence') {
-            sequenceBuilder.style.display = 'block';
-            updateSequenceSteps();
-        } else {
-            sequenceBuilder.style.display = 'none';
-        }
-    });
+function updateScheduleButtonState() {
+    const taskText = document.getElementById('task-text').value.trim();
+    const targetWindow = document.getElementById('target-window').value;
+    const submitBtn = document.getElementById('submit-schedule');
+    
+    // Enable button only if we have both message and target window
+    submitBtn.disabled = !taskText || !targetWindow;
+}
+
+// Schedule type selection (now a checkbox)
+document.getElementById('use-sequence').addEventListener('change', (e) => {
+    const sequenceBuilder = document.getElementById('sequence-builder');
+    if (e.target.checked) {
+        sequenceBuilder.style.display = 'block';
+        updateSequenceSteps();
+    } else {
+        sequenceBuilder.style.display = 'none';
+    }
 });
 
 // Repetitions change
@@ -299,7 +329,7 @@ function updateSequenceSteps() {
         const step = document.createElement('div');
         step.className = 'sequence-step';
         
-        const content = i === 1 ? state.currentTask.transcribed_text : '';
+        const content = i === 1 ? document.getElementById('task-text').value.trim() : '';
         
         step.innerHTML = `
             <div class="step-number">Step ${i}:</div>
@@ -319,16 +349,17 @@ function updateSequenceSteps() {
 // Submit schedule
 document.getElementById('submit-schedule').addEventListener('click', async () => {
     console.log('📅 Submit schedule clicked');
-    const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
+    const useSequence = document.getElementById('use-sequence').checked;
     const targetWindowSelect = document.getElementById('target-window');
     const targetWindow = targetWindowSelect.value;
     const startTime = document.getElementById('start-time').value;
     const repetitions = parseInt(document.getElementById('repetitions').value);
     const intervalValue = parseInt(document.getElementById('interval-value').value);
     const intervalUnit = document.getElementById('interval-unit').value;
+    const taskText = document.getElementById('task-text').value.trim();
     
     console.log('📋 Schedule data:', {
-        scheduleType, targetWindow, startTime, repetitions, intervalValue, intervalUnit
+        useSequence, targetWindow, startTime, repetitions, intervalValue, intervalUnit
     });
     console.log('🪟 Selected window option:', targetWindowSelect.selectedIndex, 'value:', targetWindow);
     console.log('🪟 Window dropdown HTML:', targetWindowSelect.innerHTML);
@@ -357,10 +388,10 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
         start_time: localDate.toISOString(),
         repetitions: repetitions,
         interval_seconds: intervalSeconds,
-        use_different_messages: scheduleType === 'sequence'
+        use_different_messages: useSequence
     };
     
-    if (scheduleType === 'sequence') {
+    if (useSequence) {
         // Collect messages from sequence steps
         const messages = [];
         const steps = document.querySelectorAll('.sequence-step');
@@ -374,7 +405,7 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
         }
         scheduleData.messages = messages;
     } else {
-        scheduleData.message = state.currentTask.transcribed_text;
+        scheduleData.message = taskText;
     }
     
     try {
@@ -393,7 +424,12 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
             showScreen('dashboard');
             // Clear form
             document.getElementById('task-text').value = '';
-            document.getElementById('proceed-schedule').disabled = true;
+            document.getElementById('target-window').value = '';
+            document.getElementById('start-time').value = '';
+            document.getElementById('repetitions').value = 1;
+            document.getElementById('use-sequence').checked = false;
+            document.getElementById('sequence-builder').style.display = 'none';
+            updateScheduleButtonState();
         } else {
             const errorText = await response.text();
             console.error('❌ Failed to schedule:', response.status, errorText);
@@ -492,13 +528,15 @@ function displayJobGroups(jobGroups) {
                             <small>${new Date(job.scheduled_time).toLocaleString()}</small>
                         </div>
                         <span class="job-status ${job.status.toLowerCase()}">${job.status}</span>
-                        ${job.status === 'PENDING' ? `
-                            <div class="job-actions">
+                        <div class="job-actions">
+                            ${job.status === 'PENDING' ? `
                                 <button onclick="editJob(${job.id})">✏️</button>
                                 <button onclick="rescheduleJob(${job.id})">🕐</button>
                                 <button onclick="cancelJob(${job.id})">❌</button>
-                            </div>
-                        ` : ''}
+                            ` : job.status === 'SENT' ? `
+                                <button onclick="deleteJob(${job.id})" title="Delete from history">🗑️</button>
+                            ` : ''}
+                        </div>
                     </div>
                 `).join('')}
             </div>
@@ -643,6 +681,26 @@ async function cancelJob(jobId) {
         alert('Failed to cancel job');
     }
 }
+
+// Delete job from history (for sent messages)
+window.deleteJob = async function(jobId) {
+    if (!confirm('Delete this message from history?')) return;
+    
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/delete-history`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            loadMissionControl();
+        } else {
+            alert('Failed to delete from history');
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        alert('Failed to delete from history');
+    }
+};
 
 // Saved messages
 async function loadSavedMessages() {

@@ -61,6 +61,16 @@ class LocalAgentV2:
         
         # Load and reschedule existing jobs
         self.reschedule_pending_jobs()
+        
+        # Schedule cleanup of old sent messages
+        self.scheduler.add_job(
+            func=self.cleanup_old_messages,
+            trigger="interval",
+            hours=24,  # Run once per day
+            id="cleanup_old_messages",
+            replace_existing=True
+        )
+        self.cleanup_old_messages()  # Run once on startup
     
     def init_database(self):
         """Initialize local SQLite database"""
@@ -159,6 +169,11 @@ class LocalAgentV2:
         def cancel_job(data):
             """Handle job cancellation"""
             self.handle_job_cancel(data)
+        
+        @self.sio.event
+        def delete_job_history(data):
+            """Delete job from history"""
+            self.delete_job_history(data['job_id'])
         
         @self.sio.event
         def save_transcript(data):
@@ -498,6 +513,31 @@ class LocalAgentV2:
         conn.close()
         logger.info("Transcript saved locally")
     
+    def delete_job_history(self, job_id):
+        """Delete job from history (only for SENT jobs)"""
+        try:
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
+            cursor = conn.cursor()
+            
+            # Only delete if job is SENT
+            cursor.execute('DELETE FROM scheduled_jobs WHERE id = ? AND status = "SENT"', (job_id,))
+            
+            if cursor.rowcount > 0:
+                conn.commit()
+                logger.info(f"Deleted job {job_id} from history")
+                
+                # Update job status
+                self.send_job_status()
+            else:
+                logger.warning(f"Job {job_id} not found or not in SENT status")
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Failed to delete job history: {str(e)}")
+    
     def send_transcripts(self):
         """Send saved transcripts to server"""
         if not self.connected:
@@ -559,6 +599,39 @@ class LocalAgentV2:
                 logger.info(f"Rescheduled job {job_id} for {run_time_local} (local time)")
         
         conn.close()
+    
+    def cleanup_old_messages(self):
+        """Delete sent messages older than 7 days"""
+        try:
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
+            cursor = conn.cursor()
+            
+            # Calculate 7 days ago
+            seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            
+            # Delete old sent messages
+            cursor.execute('''
+                DELETE FROM scheduled_jobs 
+                WHERE status = 'SENT' 
+                AND executed_at < ?
+            ''', (seven_days_ago.isoformat(),))
+            
+            deleted_count = cursor.rowcount
+            
+            if deleted_count > 0:
+                conn.commit()
+                logger.info(f"Cleaned up {deleted_count} old sent messages")
+                # Update job status
+                self.send_job_status()
+            else:
+                logger.debug("No old messages to clean up")
+                
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup old messages: {str(e)}")
     
     def connect_with_retry(self):
         """Connect to server with exponential backoff retry"""
