@@ -16,8 +16,12 @@ openai_client = None
 def get_openai_client():
     """Get or create OpenAI client"""
     global openai_client
+    
+    # Always log the attempt
+    api_key = os.environ.get('OPENAI_API_KEY')
+    print(f"[get_openai_client] API key from env: {bool(api_key)}, length: {len(api_key) if api_key else 0}")
+    
     if openai_client is None:
-        api_key = os.environ.get('OPENAI_API_KEY')
         current_app.logger.info(f"Attempting to initialize OpenAI client. API key present: {bool(api_key)}")
         current_app.logger.info(f"API key length: {len(api_key) if api_key else 0}")
         
@@ -26,13 +30,19 @@ def get_openai_client():
                 # Initialize with just the API key, no other parameters
                 openai_client = openai.OpenAI(api_key=api_key)
                 current_app.logger.info("OpenAI client initialized successfully")
+                print("[get_openai_client] Client initialized successfully")
             except Exception as e:
                 current_app.logger.error(f"Failed to initialize OpenAI client: {type(e).__name__}: {str(e)}")
+                print(f"[get_openai_client] Failed to initialize: {e}")
                 import traceback
                 current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         else:
             current_app.logger.error("No OPENAI_API_KEY found in environment variables")
             current_app.logger.error(f"Available env vars: {list(os.environ.keys())}")
+            print(f"[get_openai_client] No API key found. Env vars: {list(os.environ.keys())}")
+    else:
+        print("[get_openai_client] Using existing client")
+    
     return openai_client
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
@@ -42,10 +52,32 @@ def speech_to_task():
     try:
         current_app.logger.info("Speech-to-task endpoint called")
         
-        client = get_openai_client()
-        if not client:
-            current_app.logger.error("OpenAI client not initialized")
+        # Try direct initialization as fallback
+        api_key = os.environ.get('OPENAI_API_KEY')
+        current_app.logger.info(f"Direct check - API key present: {bool(api_key)}")
+        
+        if not api_key:
+            # Double-check with Heroku config
+            import subprocess
+            try:
+                result = subprocess.run(['printenv'], capture_output=True, text=True)
+                env_vars = result.stdout
+                current_app.logger.info(f"Environment check: OPENAI in env: {'OPENAI' in env_vars}")
+            except:
+                pass
+            
+            current_app.logger.error("OpenAI API key not found in environment")
             return jsonify({'error': 'OpenAI API key not configured'}), 500
+        
+        # Try to create client directly
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            current_app.logger.info("Direct OpenAI client creation successful")
+        except Exception as e:
+            current_app.logger.error(f"Direct client creation failed: {e}")
+            client = get_openai_client()
+            if not client:
+                return jsonify({'error': 'Failed to initialize OpenAI client'}), 500
             
         if 'audio' not in request.files:
             current_app.logger.error("No audio file in request")
