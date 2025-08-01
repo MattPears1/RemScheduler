@@ -16,6 +16,8 @@ function connectSocket() {
     
     state.socket.on('connect', () => {
         console.log('Connected to server');
+        // Notify server we're a web client
+        state.socket.emit('web_connect');
     });
     
     state.socket.on('windows_updated', (data) => {
@@ -31,6 +33,32 @@ function connectSocket() {
         if (state.currentScreen === 'mission-control') {
             loadMissionControl();
         }
+    });
+    
+    // Handle job updates from agent
+    state.socket.on('jobs_updated', (data) => {
+        if (state.currentScreen === 'mission-control') {
+            displayJobGroups(data.job_groups);
+        }
+    });
+    
+    // Handle transcript updates from agent
+    state.socket.on('transcripts_updated', (data) => {
+        if (state.currentScreen === 'saved-messages') {
+            displaySavedMessages(data.transcripts);
+        }
+    });
+    
+    // Handle schedule confirmations
+    state.socket.on('schedule_confirmed', (data) => {
+        alert(`Successfully scheduled ${data.jobs_created} jobs!`);
+        showScreen('dashboard');
+        document.getElementById('task-text').value = '';
+        document.getElementById('proceed-schedule').disabled = true;
+    });
+    
+    state.socket.on('schedule_failed', (data) => {
+        alert(`Failed to schedule: ${data.error}`);
     });
     
     state.socket.on('agent_disconnected', () => {

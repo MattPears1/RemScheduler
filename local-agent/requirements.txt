@@ -2,7 +2,7 @@
 python-socketio[client]==5.10.0
 
 # Windows API
-pywin32==306
+pywin32==307
 
 # Process utilities
 psutil==5.9.6

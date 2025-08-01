@@ -17,7 +17,7 @@ if errorlevel 1 (
 REM Install dependencies if needed
 if not exist ".deps_installed" (
     echo Installing dependencies...
-    pip install -r requirements.txt
+    pip install -r requirements-windows.txt
     if errorlevel 0 (
         echo. > .deps_installed
         echo Dependencies installed successfully!

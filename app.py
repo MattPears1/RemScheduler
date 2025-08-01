@@ -33,7 +33,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global state for rate limiting
+# Global state for rate limiting (kept for compatibility)
 system_state = {
     'rate_limited': False,
     'reset_time': None
@@ -54,21 +54,20 @@ def load_user(user_id):
     from backend.models import User
     return User.query.get(int(user_id))
 
-# Import and register blueprints and handlers after app is created
-from backend.routes import api_routes
+# Import and register V2 blueprints and handlers
+from backend.routes_v2 import api_routes_v2
 from backend.auth import auth_routes
-from backend.websocket_handlers import register_websocket_handlers
+from backend.websocket_handlers_v2 import register_websocket_handlers_v2
 
-app.register_blueprint(api_routes, url_prefix='/api')
+app.register_blueprint(api_routes_v2, url_prefix='/api')
 app.register_blueprint(auth_routes, url_prefix='/auth')
-register_websocket_handlers(socketio)
+register_websocket_handlers_v2(socketio)
 
 # Create database tables and default user
 with app.app_context():
     from backend.models import User, LocalAgent, Task, ScheduledJob, PresetProfile, SystemStatus
     
-    # Drop and recreate tables to handle schema change (removing email field)
-    # This is safe for initial deployment
+    # Drop old tables (they're now managed by the agent)
     try:
         db.drop_all()
         logger.info("Dropped existing tables")
@@ -80,14 +79,12 @@ with app.app_context():
     
     # Create default user
     default_user = User(username='matt')
-    default_user.set_password('aether2025')  # You can change this password
+    default_user.set_password('aether2025')
     db.session.add(default_user)
     db.session.commit()
     logger.info("Default user 'matt' created with password 'aether2025'")
 
-# Initialize the scheduler
-from backend.scheduler import init_scheduler
-scheduler = init_scheduler(app, socketio)
+# Note: Scheduler removed - now handled by local agent
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
