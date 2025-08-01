@@ -404,7 +404,7 @@ class LocalAgentV2:
             jobs_by_group[group_id]['jobs'].append({
                 'id': row[1],
                 'message_text': row[2],
-                'scheduled_time': row[5],
+                'scheduled_time': row[5].isoformat() if isinstance(row[5], datetime) else row[5],
                 'status': row[6],
                 'error_message': row[7]
             })
@@ -508,7 +508,7 @@ class LocalAgentV2:
             transcripts.append({
                 'id': row[0],
                 'text': row[1],
-                'created_at': row[2]
+                'created_at': row[2].isoformat() if isinstance(row[2], datetime) else row[2]
             })
         
         conn.close()

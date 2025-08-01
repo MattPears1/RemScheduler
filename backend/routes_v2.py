@@ -24,33 +24,51 @@ except Exception as e:
 def speech_to_task():
     """Convert speech audio to text"""
     try:
+        current_app.logger.info("Speech-to-task endpoint called")
+        
         if not openai_client:
+            current_app.logger.error("OpenAI client not initialized")
             return jsonify({'error': 'OpenAI API key not configured'}), 500
             
         if 'audio' not in request.files:
+            current_app.logger.error("No audio file in request")
             return jsonify({'error': 'No audio file provided'}), 400
         
         audio_file = request.files['audio']
+        current_app.logger.info(f"Received audio file: {audio_file.filename}, content_type: {audio_file.content_type}")
+        
         if audio_file.filename == '':
             return jsonify({'error': 'No audio file selected'}), 400
         
-        # Save temporary file with proper extension
-        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
+        # Save temporary file with proper extension based on content type
+        extension = '.webm'
+        if audio_file.content_type:
+            if 'wav' in audio_file.content_type:
+                extension = '.wav'
+            elif 'mp3' in audio_file.content_type:
+                extension = '.mp3'
+            elif 'mpeg' in audio_file.content_type:
+                extension = '.mp3'
+                
+        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
             audio_file.save(temp_file.name)
             temp_path = temp_file.name
+            current_app.logger.info(f"Saved audio to temp file: {temp_path}, size: {os.path.getsize(temp_path)} bytes")
         
         try:
             # Transcribe using OpenAI Whisper with new client API
+            current_app.logger.info("Starting transcription with Whisper API")
+            
             with open(temp_path, 'rb') as audio:
                 transcript = openai_client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio,
-                    language="en",  # Force English
-                    prompt="Transcribe the following audio to English text."
+                    language="en"  # Force English
                 )
             
             # Get the transcribed text
             transcribed_text = transcript.text
+            current_app.logger.info(f"Transcription successful: {transcribed_text[:50]}...")
             
             # Send to agent to save locally
             from app import socketio
@@ -70,7 +88,9 @@ def speech_to_task():
                 pass
         
     except Exception as e:
-        current_app.logger.error(f"Speech-to-task error: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f"Speech-to-task error: {str(e)}\nTraceback: {error_trace}")
         return jsonify({'error': f'Failed to process audio: {str(e)}'}), 500
 
 @api_routes_v2.route('/schedule', methods=['POST'])

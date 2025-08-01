@@ -1,13 +1,30 @@
+/* Light Cyberpunk Theme */
 :root {
-    --primary-color: #1a1a2e;
-    --secondary-color: #16213e;
-    --accent-color: #0f4c75;
-    --highlight-color: #3282b8;
-    --text-color: #bbe1fa;
-    --bg-color: #0f0f1e;
-    --success-color: #4caf50;
-    --error-color: #f44336;
-    --warning-color: #ff9800;
+    /* Primary Colors */
+    --primary-color: #00f3ff; /* Cyan */
+    --secondary-color: #ff00ff; /* Magenta */
+    --accent-color: #7fff00; /* Neon Green */
+    --highlight-color: #ffaa00; /* Amber */
+    
+    /* Background Colors */
+    --bg-color: #f5f5f7;
+    --bg-secondary: #ffffff;
+    --bg-dark: #e8e8ed;
+    
+    /* Text Colors */
+    --text-color: #1a1a2e;
+    --text-secondary: #4a4a5c;
+    --text-light: #ffffff;
+    
+    /* Border & Shadow */
+    --border-color: rgba(0, 243, 255, 0.2);
+    --shadow-color: rgba(0, 243, 255, 0.1);
+    --glow-color: rgba(0, 243, 255, 0.5);
+    
+    /* Status Colors */
+    --success-color: #00ff88;
+    --error-color: #ff0055;
+    --warning-color: #ffaa00;
 }
 
 * {

@@ -12,24 +12,30 @@ const state = {
 
 // Socket.IO connection
 function connectSocket() {
+    console.log('🔌 Initializing Socket.IO connection...');
     state.socket = io();
     
     state.socket.on('connect', () => {
-        console.log('Connected to server');
+        console.log('✅ Connected to server');
+        console.log('📡 Socket ID:', state.socket.id);
         // Notify server we're a web client
+        console.log('🖥️ Notifying server we are a web client...');
         state.socket.emit('web_connect');
     });
     
     state.socket.on('windows_updated', (data) => {
+        console.log('🪟 Windows updated:', data.windows);
         state.windows = data.windows;
         updateWindowsList();
     });
     
     state.socket.on('rate_limit_active', (data) => {
+        console.log('⚠️ Rate limit active until:', data.reset_time);
         showRateLimitBanner(data.reset_time);
     });
     
     state.socket.on('job_status_updated', (data) => {
+        console.log('📋 Job status updated:', data);
         if (state.currentScreen === 'mission-control') {
             loadMissionControl();
         }
@@ -37,6 +43,7 @@ function connectSocket() {
     
     // Handle job updates from agent
     state.socket.on('jobs_updated', (data) => {
+        console.log('📊 Jobs updated from agent:', data);
         if (state.currentScreen === 'mission-control') {
             displayJobGroups(data.job_groups);
         }
@@ -44,6 +51,7 @@ function connectSocket() {
     
     // Handle transcript updates from agent
     state.socket.on('transcripts_updated', (data) => {
+        console.log('📝 Transcripts updated from agent:', data);
         if (state.currentScreen === 'saved-messages') {
             displaySavedMessages(data.transcripts);
         }
@@ -51,6 +59,7 @@ function connectSocket() {
     
     // Handle schedule confirmations
     state.socket.on('schedule_confirmed', (data) => {
+        console.log('✅ Schedule confirmed:', data);
         alert(`Successfully scheduled ${data.jobs_created} jobs!`);
         showScreen('dashboard');
         document.getElementById('task-text').value = '';
@@ -58,11 +67,21 @@ function connectSocket() {
     });
     
     state.socket.on('schedule_failed', (data) => {
+        console.error('❌ Schedule failed:', data);
         alert(`Failed to schedule: ${data.error}`);
     });
     
     state.socket.on('agent_disconnected', () => {
+        console.log('🔌 Agent disconnected');
         updateAgentStatus(false);
+    });
+    
+    state.socket.on('disconnect', () => {
+        console.log('❌ Socket disconnected from server');
+    });
+    
+    state.socket.on('error', (error) => {
+        console.error('🚨 Socket error:', error);
     });
 }
 
@@ -152,33 +171,46 @@ const recordingIndicator = document.querySelector('.recording-indicator');
 recordBtn.addEventListener('click', async () => {
     if (!state.mediaRecorder) {
         // Start recording
+        console.log('🎤 Starting audio recording...');
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log('✅ Microphone access granted');
+            console.log('🎵 Audio stream:', stream);
             state.mediaRecorder = new MediaRecorder(stream);
             state.audioChunks = [];
             
             state.mediaRecorder.ondataavailable = (event) => {
+                console.log('📦 Audio chunk received, size:', event.data.size);
                 state.audioChunks.push(event.data);
             };
             
             state.mediaRecorder.onstop = async () => {
+                console.log('🛑 Recording stopped');
+                console.log('📦 Total chunks:', state.audioChunks.length);
                 const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
+                console.log('🎙️ Audio blob created, size:', audioBlob.size, 'type:', audioBlob.type);
                 await processAudio(audioBlob);
             };
             
             state.mediaRecorder.start();
+            console.log('✅ MediaRecorder started');
             recordBtn.classList.add('recording');
             recordText.textContent = 'Stop Recording';
             recordingIndicator.style.display = 'flex';
             
         } catch (error) {
-            console.error('Recording error:', error);
-            alert('Could not access microphone');
+            console.error('❌ Recording error:', error);
+            console.error('Error details:', error.message, error.stack);
+            alert('Could not access microphone: ' + error.message);
         }
     } else {
         // Stop recording
+        console.log('🛑 Stopping recording...');
         state.mediaRecorder.stop();
-        state.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        state.mediaRecorder.stream.getTracks().forEach(track => {
+            console.log('🔇 Stopping audio track:', track.label);
+            track.stop();
+        });
         state.mediaRecorder = null;
         
         recordBtn.classList.remove('recording');
@@ -188,26 +220,39 @@ recordBtn.addEventListener('click', async () => {
 });
 
 async function processAudio(audioBlob) {
+    console.log('🎙️ Processing audio blob...');
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.webm');
+    console.log('📤 FormData created with audio file');
     
     try {
+        console.log('🚀 Sending audio to server for transcription...');
         const response = await fetch('/api/speech-to-task', {
             method: 'POST',
             body: formData
         });
+        console.log('📡 Response status:', response.status, response.statusText);
         
         if (response.ok) {
             const data = await response.json();
+            console.log('✅ Transcription successful:', data);
             document.getElementById('task-text').value = data.transcribed_text;
             document.getElementById('proceed-schedule').disabled = false;
             state.currentTask = data;
         } else {
-            alert('Failed to transcribe audio');
+            const errorText = await response.text();
+            console.error('❌ Failed to transcribe audio:', response.status, errorText);
+            try {
+                const errorData = JSON.parse(errorText);
+                alert('Failed to transcribe audio: ' + (errorData.error || 'Unknown error'));
+            } catch {
+                alert('Failed to transcribe audio: ' + errorText);
+            }
         }
     } catch (error) {
-        console.error('Transcription error:', error);
-        alert('Failed to process audio');
+        console.error('❌ Transcription error:', error);
+        console.error('Error details:', error.message, error.stack);
+        alert('Failed to process audio: ' + error.message);
     }
 }
 
@@ -270,12 +315,17 @@ function updateSequenceSteps() {
 
 // Submit schedule
 document.getElementById('submit-schedule').addEventListener('click', async () => {
+    console.log('📅 Submit schedule clicked');
     const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
     const targetWindow = document.getElementById('target-window').value;
     const startTime = document.getElementById('start-time').value;
     const repetitions = parseInt(document.getElementById('repetitions').value);
     const intervalValue = parseInt(document.getElementById('interval-value').value);
     const intervalUnit = document.getElementById('interval-unit').value;
+    
+    console.log('📋 Schedule data:', {
+        scheduleType, targetWindow, startTime, repetitions, intervalValue, intervalUnit
+    });
     
     if (!targetWindow || !startTime) {
         alert('Please fill in all required fields');
@@ -314,24 +364,31 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
     }
     
     try {
+        console.log('🚀 Sending schedule request:', scheduleData);
         const response = await fetch('/api/schedule', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(scheduleData)
         });
+        console.log('📡 Schedule response:', response.status, response.statusText);
         
         if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Schedule successful:', result);
             alert('Task scheduled successfully!');
             showScreen('dashboard');
             // Clear form
             document.getElementById('task-text').value = '';
             document.getElementById('proceed-schedule').disabled = true;
         } else {
+            const errorText = await response.text();
+            console.error('❌ Failed to schedule:', response.status, errorText);
             alert('Failed to schedule task');
         }
     } catch (error) {
-        console.error('Schedule error:', error);
-        alert('Failed to schedule task');
+        console.error('❌ Schedule error:', error);
+        console.error('Error details:', error.message, error.stack);
+        alert('Failed to schedule task: ' + error.message);
     }
 });
 
