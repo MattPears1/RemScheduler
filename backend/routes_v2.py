@@ -6,99 +6,9 @@ import os
 import tempfile
 from werkzeug.utils import secure_filename
 from backend.db import db
+from backend.openai_helper import get_openai_client
 
 api_routes_v2 = Blueprint('api_v2', __name__)
-
-# Configure OpenAI client
-openai_client = None
-
-# Try to initialize at module load time
-try:
-    _api_key = os.environ.get('OPENAI_API_KEY')
-    if _api_key:
-        # Temporarily save and clear proxy environment variables
-        # The OpenAI SDK seems to be picking these up and causing issues
-        proxy_vars = {}
-        for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-            if proxy_var in os.environ:
-                proxy_vars[proxy_var] = os.environ.pop(proxy_var)
-                print(f"[Module Init] Temporarily removed {proxy_var}")
-        
-        try:
-            # Import OpenAI and check version
-            import openai as openai_module
-            print(f"[Module Init] OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
-            
-            from openai import OpenAI as OpenAIClient
-            
-            # Create client with only the API key
-            openai_client = OpenAIClient(api_key=_api_key)
-            print(f"[Module Init] OpenAI client initialized successfully")
-            
-        finally:
-            # Restore proxy environment variables
-            for proxy_var, value in proxy_vars.items():
-                os.environ[proxy_var] = value
-                print(f"[Module Init] Restored {proxy_var}")
-                
-    else:
-        print(f"[Module Init] No OPENAI_API_KEY found")
-except Exception as e:
-    print(f"[Module Init] Failed to initialize OpenAI client: {e}")
-    import traceback
-    print(f"[Module Init] Traceback: {traceback.format_exc()}")
-
-def get_openai_client():
-    """Get or create OpenAI client"""
-    global openai_client
-    
-    # Always log the attempt
-    api_key = os.environ.get('OPENAI_API_KEY')
-    print(f"[get_openai_client] API key from env: {bool(api_key)}, length: {len(api_key) if api_key else 0}")
-    
-    if openai_client is None:
-        current_app.logger.info(f"Attempting to initialize OpenAI client. API key present: {bool(api_key)}")
-        current_app.logger.info(f"API key length: {len(api_key) if api_key else 0}")
-        
-        if api_key:
-            # Temporarily save and clear proxy environment variables
-            proxy_vars = {}
-            for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-                if proxy_var in os.environ:
-                    proxy_vars[proxy_var] = os.environ.pop(proxy_var)
-                    current_app.logger.info(f"Temporarily removed {proxy_var}")
-            
-            try:
-                # Import and check version
-                import openai as openai_module
-                current_app.logger.info(f"OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
-                
-                # Initialize with just the API key, no other parameters
-                from openai import OpenAI as OpenAIClient
-                openai_client = OpenAIClient(api_key=api_key)
-                current_app.logger.info("OpenAI client initialized successfully")
-                print("[get_openai_client] Client initialized successfully")
-                
-            except Exception as e:
-                current_app.logger.error(f"Failed to initialize OpenAI client: {type(e).__name__}: {str(e)}")
-                print(f"[get_openai_client] Failed to initialize: {e}")
-                import traceback
-                current_app.logger.error(f"Traceback: {traceback.format_exc()}")
-                
-            finally:
-                # Restore proxy environment variables
-                for proxy_var, value in proxy_vars.items():
-                    os.environ[proxy_var] = value
-                    current_app.logger.info(f"Restored {proxy_var}")
-                    
-        else:
-            current_app.logger.error("No OPENAI_API_KEY found in environment variables")
-            current_app.logger.error(f"Available env vars: {list(os.environ.keys())}")
-            print(f"[get_openai_client] No API key found. Env vars: {list(os.environ.keys())}")
-    else:
-        print("[get_openai_client] Using existing client")
-    
-    return openai_client
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
 @login_required
@@ -107,48 +17,11 @@ def speech_to_task():
     try:
         current_app.logger.info("Speech-to-task endpoint called")
         
-        # Use module-level client first
-        global openai_client
-        if openai_client:
-            current_app.logger.info("Using module-level OpenAI client")
-            client = openai_client
-        else:
-            # Try to create one now
-            api_key = os.environ.get('OPENAI_API_KEY')
-            current_app.logger.info(f"Creating new client - API key present: {bool(api_key)}")
-            
-            if not api_key:
-                current_app.logger.error("No API key found")
-                return jsonify({'error': 'OpenAI API key not configured'}), 500
-            
-            # Temporarily save and clear proxy environment variables
-            proxy_vars = {}
-            for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
-                if proxy_var in os.environ:
-                    proxy_vars[proxy_var] = os.environ.pop(proxy_var)
-                    current_app.logger.info(f"Temporarily removed {proxy_var}")
-            
-            try:
-                # Import and check version  
-                import openai as openai_module
-                current_app.logger.info(f"OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
-                
-                from openai import OpenAI as OpenAIClient
-                client = OpenAIClient(api_key=api_key)
-                openai_client = client  # Save for next time
-                current_app.logger.info("New OpenAI client created successfully")
-                
-            except Exception as e:
-                current_app.logger.error(f"Failed to create OpenAI client: {e}")
-                import traceback
-                current_app.logger.error(f"Traceback: {traceback.format_exc()}")
-                return jsonify({'error': f'Failed to initialize OpenAI client: {str(e)}'}), 500
-                
-            finally:
-                # Restore proxy environment variables
-                for proxy_var, value in proxy_vars.items():
-                    os.environ[proxy_var] = value
-                    current_app.logger.info(f"Restored {proxy_var}")
+        # Get OpenAI client
+        client = get_openai_client()
+        if not client:
+            current_app.logger.error("Failed to get OpenAI client")
+            return jsonify({'error': 'OpenAI API key not configured or client initialization failed'}), 500
             
         if 'audio' not in request.files:
             current_app.logger.error("No audio file in request")
@@ -377,6 +250,13 @@ def test_openai():
             if value:
                 proxy_info[proxy_var] = value
         
+        # Check OpenAI version
+        try:
+            import openai
+            openai_version = getattr(openai, '__version__', 'unknown')
+        except:
+            openai_version = 'not installed'
+        
         # Try to get client
         client = get_openai_client()
         
@@ -384,7 +264,8 @@ def test_openai():
             'success': client is not None,
             'message': 'OpenAI client initialized' if client else 'Failed to initialize',
             'proxy_vars': proxy_info,
-            'api_key_present': bool(os.environ.get('OPENAI_API_KEY'))
+            'api_key_present': bool(os.environ.get('OPENAI_API_KEY')),
+            'openai_version': openai_version
         })
     except Exception as e:
         import traceback
