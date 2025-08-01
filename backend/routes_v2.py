@@ -12,8 +12,12 @@ api_routes_v2 = Blueprint('api_v2', __name__)
 
 # Configure OpenAI client
 openai_client = None
-if os.environ.get('OPENAI_API_KEY'):
-    openai_client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+try:
+    if os.environ.get('OPENAI_API_KEY'):
+        openai_client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+except Exception as e:
+    print(f"Failed to initialize OpenAI client: {e}")
+    openai_client = None
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
 @login_required

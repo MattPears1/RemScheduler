@@ -26,4 +26,4 @@ gunicorn==21.2.0
 eventlet==0.33.3
 
 # Speech-to-Text (optional for server-side processing)
-openai==1.6.1
+openai==1.51.0
