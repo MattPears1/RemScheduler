@@ -13,28 +13,36 @@ api_routes_v2 = Blueprint('api_v2', __name__)
 @login_required
 def speech_to_task():
     """Convert speech audio to text using OpenAI Whisper"""
+    current_app.logger.info("Speech-to-task endpoint called")
+    
     try:
         # Get audio from request
         if 'audio' not in request.files:
+            current_app.logger.error("No audio file in request")
             return jsonify({'error': 'No audio file provided'}), 400
         
         audio_file = request.files['audio']
+        current_app.logger.info(f"Received audio file: {audio_file.filename}")
         
         # Get OpenAI API key
         api_key = os.environ.get('OPENAI_API_KEY')
         if not api_key:
+            current_app.logger.error("No OpenAI API key found")
             return jsonify({'error': 'OpenAI API key not configured'}), 500
         
         # Save audio temporarily
         with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
             audio_file.save(temp_file.name)
             temp_path = temp_file.name
+            current_app.logger.info(f"Saved audio to: {temp_path}")
         
         try:
             # Simple direct call to OpenAI
+            current_app.logger.info("Initializing OpenAI client")
             from openai import OpenAI
             client = OpenAI(api_key=api_key)
             
+            current_app.logger.info("Calling Whisper API")
             with open(temp_path, 'rb') as audio:
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1",
@@ -42,6 +50,7 @@ def speech_to_task():
                 )
             
             transcribed_text = transcript.text.strip()
+            current_app.logger.info(f"Transcription successful: {transcribed_text[:50]}...")
             
             # Return the transcribed text
             return jsonify({
@@ -52,12 +61,16 @@ def speech_to_task():
             # Clean up
             try:
                 os.unlink(temp_path)
-            except:
-                pass
+                current_app.logger.info("Cleaned up temp file")
+            except Exception as e:
+                current_app.logger.warning(f"Failed to clean up temp file: {e}")
         
     except Exception as e:
         current_app.logger.error(f"Whisper error: {str(e)}")
-        return jsonify({'error': 'Failed to transcribe audio'}), 500
+        current_app.logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        current_app.logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to transcribe audio: {str(e)}'}), 500
 
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required
