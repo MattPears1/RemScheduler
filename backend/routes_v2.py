@@ -49,30 +49,41 @@ def speech_to_task():
             current_app.logger.info(f"Saved audio to temp file: {temp_path}, size: {os.path.getsize(temp_path)} bytes")
         
         try:
-            # Transcribe using OpenAI Whisper with new client API
+            # Transcribe using OpenAI Whisper with improved error handling
             current_app.logger.info("Starting transcription with Whisper API")
             
-            with open(temp_path, 'rb') as audio:
-                # Add timeout and better error handling
+            # Try transcription with fallback
+            from backend.openai_helper import transcribe_audio_with_fallback
+            transcribed_text = transcribe_audio_with_fallback(temp_path)
+            
+            if not transcribed_text:
+                # If fallback failed, try one more time with basic approach
+                current_app.logger.warning("Fallback failed, trying basic approach")
                 try:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio,
-                        language="en",  # Force English
-                        timeout=30.0  # 30 second timeout
-                    )
-                except Exception as api_error:
-                    current_app.logger.error(f"OpenAI API error: {str(api_error)}")
-                    # Return a more user-friendly error
-                    if "Connection error" in str(api_error) or "timed out" in str(api_error):
-                        return jsonify({'error': 'Connection to transcription service timed out. Please try again.'}), 503
-                    elif "quota" in str(api_error).lower():
+                    with open(temp_path, 'rb') as audio:
+                        audio.name = f'recording{extension}'  # Ensure file has proper name
+                        transcript = client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=audio,
+                            language="en"
+                        )
+                        transcribed_text = transcript.text
+                except Exception as final_error:
+                    current_app.logger.error(f"Final transcription attempt failed: {str(final_error)}")
+                    # Check if it's a connection/network issue
+                    error_msg = str(final_error).lower()
+                    if any(word in error_msg for word in ['connection', 'timeout', 'dns', 'network', 'lookup']):
+                        return jsonify({
+                            'error': 'Unable to connect to transcription service. This may be a network issue on Heroku. Please try again later.'
+                        }), 503
+                    elif 'quota' in error_msg:
                         return jsonify({'error': 'API quota exceeded. Please try again later.'}), 503
                     else:
-                        return jsonify({'error': f'Transcription failed: {str(api_error)}'}), 500
+                        return jsonify({'error': f'Transcription failed: {str(final_error)}'}), 500
             
-            # Get the transcribed text
-            transcribed_text = transcript.text
+            if not transcribed_text:
+                return jsonify({'error': 'Transcription returned empty result'}), 500
+            
             current_app.logger.info(f"Transcription successful: {transcribed_text[:50]}...")
             
             # Send to agent to save locally
@@ -300,41 +311,157 @@ def get_windows():
 def health_openai():
     """Health check for OpenAI API connectivity"""
     try:
-        client = get_openai_client()
-        if not client:
-            return jsonify({
-                'status': 'error',
-                'message': 'OpenAI client not initialized'
-            }), 503
+        import socket
         
-        # Try a simple API call with short timeout
+        # Step 1: Check DNS resolution
+        dns_result = "Unknown"
+        try:
+            ip = socket.gethostbyname('api.openai.com')
+            dns_result = f"Success ({ip})"
+        except Exception as e:
+            dns_result = f"Failed: {str(e)}"
+        
+        # Step 2: Check OpenAI client
+        client_result = "Unknown"
+        client = get_openai_client()
+        if client:
+            client_result = "Initialized"
+        else:
+            client_result = "Failed to initialize"
+        
+        # Step 3: Try basic HTTPS request
+        https_result = "Unknown"
         try:
             import httpx
-            # Create a test client with very short timeout
-            test_client = httpx.Client(timeout=5.0)
-            response = test_client.get('https://api.openai.com/v1/models', 
-                                     headers={'Authorization': f'Bearer {os.environ.get("OPENAI_API_KEY")}'})
-            test_client.close()
-            
-            if response.status_code == 200:
-                return jsonify({
-                    'status': 'healthy',
-                    'message': 'OpenAI API is accessible'
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': f'OpenAI API returned status {response.status_code}'
-                }), 503
-                
+            with httpx.Client(timeout=10.0) as test_client:
+                response = test_client.get('https://api.openai.com/v1/models', 
+                                         headers={'Authorization': f'Bearer {os.environ.get("OPENAI_API_KEY")}'})
+                https_result = f"Status {response.status_code}"
         except Exception as e:
-            return jsonify({
-                'status': 'error',
-                'message': f'Cannot reach OpenAI API: {str(e)}'
-            }), 503
+            https_result = f"Failed: {str(e)}"
+        
+        # Step 4: Try OpenAI SDK call
+        sdk_result = "Unknown"
+        if client:
+            try:
+                # Try to list models as a simple test
+                models = list(client.models.list())
+                sdk_result = f"Success ({len(models)} models)"
+            except Exception as e:
+                sdk_result = f"Failed: {str(e)}"
+        
+        # Determine overall status
+        all_success = (
+            "Success" in dns_result and 
+            "Initialized" in client_result and 
+            "200" in https_result and 
+            "Success" in sdk_result
+        )
+        
+        return jsonify({
+            'status': 'healthy' if all_success else 'degraded',
+            'checks': {
+                'dns_resolution': dns_result,
+                'client_initialization': client_result,
+                'https_connection': https_result,
+                'sdk_api_call': sdk_result
+            },
+            'environment': {
+                'api_key_present': bool(os.environ.get('OPENAI_API_KEY')),
+                'openai_version': getattr(__import__('openai'), '__version__', 'unknown'),
+                'httpx_version': getattr(__import__('httpx'), '__version__', 'unknown')
+            }
+        }), 200 if all_success else 503
             
     except Exception as e:
         return jsonify({
             'status': 'error',
             'message': f'Health check failed: {str(e)}'
+        }), 500
+
+@api_routes_v2.route('/test/whisper', methods=['GET'])
+@login_required
+def test_whisper():
+    """Test Whisper transcription with a minimal audio file"""
+    try:
+        import io
+        import struct
+        
+        # Create a minimal WAV file (1 second of silence)
+        sample_rate = 16000
+        duration = 1
+        samples = sample_rate * duration
+        
+        # Create WAV file in memory
+        wav_file = io.BytesIO()
+        
+        # WAV header
+        wav_file.write(b'RIFF')
+        wav_file.write(struct.pack('<I', 36 + samples * 2))
+        wav_file.write(b'WAVE')
+        wav_file.write(b'fmt ')
+        wav_file.write(struct.pack('<I', 16))
+        wav_file.write(struct.pack('<H', 1))  # PCM
+        wav_file.write(struct.pack('<H', 1))  # Mono
+        wav_file.write(struct.pack('<I', sample_rate))
+        wav_file.write(struct.pack('<I', sample_rate * 2))
+        wav_file.write(struct.pack('<H', 2))
+        wav_file.write(struct.pack('<H', 16))
+        wav_file.write(b'data')
+        wav_file.write(struct.pack('<I', samples * 2))
+        
+        # Write silence
+        for _ in range(samples):
+            wav_file.write(struct.pack('<h', 0))
+        
+        wav_file.seek(0)
+        wav_file.name = 'test.wav'
+        
+        # Get OpenAI client
+        client = get_openai_client()
+        if not client:
+            return jsonify({
+                'success': False,
+                'error': 'OpenAI client not initialized'
+            }), 503
+        
+        # Try transcription
+        try:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=wav_file,
+                language="en"
+            )
+            
+            return jsonify({
+                'success': True,
+                'transcription': transcript.text,
+                'message': 'Whisper API is working correctly'
+            })
+            
+        except Exception as e:
+            error_msg = str(e)
+            current_app.logger.error(f"Whisper test failed: {error_msg}")
+            
+            # Provide helpful error analysis
+            if 'connection' in error_msg.lower() or 'timeout' in error_msg.lower():
+                suggestion = "Network connectivity issue. Heroku may be blocking OpenAI API access."
+            elif 'quota' in error_msg.lower():
+                suggestion = "API quota exceeded. Check your OpenAI account."
+            elif 'api_key' in error_msg.lower() or 'authentication' in error_msg.lower():
+                suggestion = "API key issue. Verify OPENAI_API_KEY is set correctly."
+            else:
+                suggestion = "Unknown error. Check Heroku logs for details."
+            
+            return jsonify({
+                'success': False,
+                'error': error_msg,
+                'suggestion': suggestion
+            }), 503
+            
+    except Exception as e:
+        current_app.logger.error(f"Whisper test setup failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Test setup failed: {str(e)}'
         }), 500

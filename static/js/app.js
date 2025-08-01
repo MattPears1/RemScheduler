@@ -175,53 +175,64 @@ const recordText = recordBtn.querySelector('.record-text');
 const recordingIndicator = document.querySelector('.recording-indicator');
 
 recordBtn.addEventListener('click', async () => {
-    if (!state.mediaRecorder) {
-        // Start recording
-        console.log('🎤 Starting audio recording...');
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            console.log('✅ Microphone access granted');
-            console.log('🎵 Audio stream:', stream);
-            state.mediaRecorder = new MediaRecorder(stream);
-            state.audioChunks = [];
-            
-            state.mediaRecorder.ondataavailable = (event) => {
-                console.log('📦 Audio chunk received, size:', event.data.size);
-                state.audioChunks.push(event.data);
-            };
-            
-            state.mediaRecorder.onstop = async () => {
-                console.log('🛑 Recording stopped');
-                console.log('📦 Total chunks:', state.audioChunks.length);
-                const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
-                console.log('🎙️ Audio blob created, size:', audioBlob.size, 'type:', audioBlob.type);
-                await processAudio(audioBlob);
-            };
-            
-            state.mediaRecorder.start();
-            console.log('✅ MediaRecorder started');
-            recordBtn.classList.add('recording');
-            recordText.textContent = 'Stop Recording';
-            recordingIndicator.style.display = 'flex';
-            
-        } catch (error) {
-            console.error('❌ Recording error:', error);
-            console.error('Error details:', error.message, error.stack);
-            alert('Could not access microphone: ' + error.message);
-        }
+    // Check if browser speech recognition is available
+    const hasBrowserSpeech = ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window);
+    console.log('🎙️ Browser speech recognition available:', hasBrowserSpeech);
+    
+    if (hasBrowserSpeech) {
+        // Use browser-based speech recognition
+        console.log('🌐 Using browser-based speech recognition');
+        window.startBrowserSpeechRecognition();
     } else {
-        // Stop recording
-        console.log('🛑 Stopping recording...');
-        state.mediaRecorder.stop();
-        state.mediaRecorder.stream.getTracks().forEach(track => {
-            console.log('🔇 Stopping audio track:', track.label);
-            track.stop();
-        });
-        state.mediaRecorder = null;
-        
-        recordBtn.classList.remove('recording');
-        recordText.textContent = 'Start Recording';
-        recordingIndicator.style.display = 'none';
+        // Fall back to server-based recording
+        if (!state.mediaRecorder) {
+            // Start recording
+            console.log('🎤 Starting audio recording (server-based)...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log('✅ Microphone access granted');
+                console.log('🎵 Audio stream:', stream);
+                state.mediaRecorder = new MediaRecorder(stream);
+                state.audioChunks = [];
+                
+                state.mediaRecorder.ondataavailable = (event) => {
+                    console.log('📦 Audio chunk received, size:', event.data.size);
+                    state.audioChunks.push(event.data);
+                };
+                
+                state.mediaRecorder.onstop = async () => {
+                    console.log('🛑 Recording stopped');
+                    console.log('📦 Total chunks:', state.audioChunks.length);
+                    const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
+                    console.log('🎙️ Audio blob created, size:', audioBlob.size, 'type:', audioBlob.type);
+                    await processAudio(audioBlob);
+                };
+                
+                state.mediaRecorder.start();
+                console.log('✅ MediaRecorder started');
+                recordBtn.classList.add('recording');
+                recordText.textContent = 'Stop Recording';
+                recordingIndicator.style.display = 'flex';
+                
+            } catch (error) {
+                console.error('❌ Recording error:', error);
+                console.error('Error details:', error.message, error.stack);
+                alert('Could not access microphone: ' + error.message);
+            }
+        } else {
+            // Stop recording
+            console.log('🛑 Stopping recording...');
+            state.mediaRecorder.stop();
+            state.mediaRecorder.stream.getTracks().forEach(track => {
+                console.log('🔇 Stopping audio track:', track.label);
+                track.stop();
+            });
+            state.mediaRecorder = null;
+            
+            recordBtn.classList.remove('recording');
+            recordText.textContent = 'Start Recording';
+            recordingIndicator.style.display = 'none';
+        }
     }
 });
 
