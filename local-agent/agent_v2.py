@@ -206,18 +206,24 @@ class LocalAgentV2:
                 if run_time.tzinfo is None:
                     run_time = pytz.UTC.localize(run_time)
                 
-                # Get current time as timezone-aware
-                now_utc = datetime.now(timezone.utc)
+                # Convert UTC time to local time for scheduling
+                # This ensures the job runs at the time the user selected in their local timezone
+                local_tz = pytz.timezone('Europe/London')  # Adjust this to your timezone
+                run_time_local = run_time.astimezone(local_tz)
+                logger.info(f"Scheduling job {job_id}: UTC={run_time}, Local={run_time_local}")
                 
-                if run_time > now_utc:
+                # Get current time as timezone-aware
+                now_local = datetime.now(local_tz)
+                
+                if run_time_local > now_local:
                     self.scheduler.add_job(
                         func=self.execute_job,
-                        trigger=DateTrigger(run_date=run_time),
+                        trigger=DateTrigger(run_date=run_time_local),
                         args=[job_id],
                         id=f"job_{job_id}",
                         replace_existing=True
                     )
-                    logger.info(f"Scheduled job {job_id} for {run_time}")
+                    logger.info(f"Scheduled job {job_id} for {run_time_local} (local time)")
             
             conn.commit()
             conn.close()
@@ -536,16 +542,21 @@ class LocalAgentV2:
             if run_time.tzinfo is None:
                 run_time = pytz.UTC.localize(run_time)
             
+            # Convert UTC time to local time for scheduling
+            local_tz = pytz.timezone('Europe/London')  # Adjust this to your timezone
+            run_time_local = run_time.astimezone(local_tz)
+            now_local = datetime.now(local_tz)
+            
             # Only schedule if still in the future
-            if run_time > datetime.now(timezone.utc):
+            if run_time_local > now_local:
                 self.scheduler.add_job(
                     func=self.execute_job,
-                    trigger=DateTrigger(run_date=run_time),
+                    trigger=DateTrigger(run_date=run_time_local),
                     args=[job_id],
                     id=f"job_{job_id}",
                     replace_existing=True
                 )
-                logger.info(f"Rescheduled job {job_id} for {run_time}")
+                logger.info(f"Rescheduled job {job_id} for {run_time_local} (local time)")
         
         conn.close()
     

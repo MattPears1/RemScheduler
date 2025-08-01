@@ -344,10 +344,17 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
     if (intervalUnit === 'minutes') intervalSeconds *= 60;
     if (intervalUnit === 'hours') intervalSeconds *= 3600;
     
+    // Fix timezone issue - datetime-local gives local time but we need to preserve it
+    // The backend expects ISO string, but we need to ensure the local time is what gets scheduled
+    const localDate = new Date(startTime);
+    console.log('📅 Local datetime selected:', startTime);
+    console.log('📅 Parsed as Date object:', localDate);
+    console.log('📅 Will be sent as ISO:', localDate.toISOString());
+    
     const scheduleData = {
         target_hwnd: parseInt(targetWindow),
         target_title: state.windows.find(w => w.hwnd == targetWindow)?.title || '',
-        start_time: new Date(startTime).toISOString(),
+        start_time: localDate.toISOString(),
         repetitions: repetitions,
         interval_seconds: intervalSeconds,
         use_different_messages: scheduleType === 'sequence'

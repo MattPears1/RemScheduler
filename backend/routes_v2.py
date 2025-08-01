@@ -105,7 +105,10 @@ def speech_to_task():
         return jsonify({'transcribed_text': result.text}), 200
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         current_app.logger.error(f"Transcription failed: {e}")
+        current_app.logger.error(f"Full error trace: {error_details}")
         
         # Clean up
         try:
@@ -115,18 +118,21 @@ def speech_to_task():
         except:
             pass
         
-        # Return error
+        # Return error with actual details
         error_msg = str(e)
-        if 'timeout' in error_msg.lower():
+        error_type = type(e).__name__
+        
+        if 'timeout' in error_msg.lower() or error_type == 'TimeoutError':
             return jsonify({
-                'error': 'Request timed out. Try recording a shorter message.'
+                'error': 'Request timed out after 25 seconds. The audio may be too long to process.'
             }), 504
-        elif 'connection' in error_msg.lower():
+        elif 'connection' in error_msg.lower() or 'ConnectError' in error_type:
+            # Connection errors on Heroku are often DNS/network related, not timeout
             return jsonify({
-                'error': 'Cannot reach OpenAI servers. This is a known Heroku limitation. Try again or use a shorter recording.'
+                'error': f'Connection failed to OpenAI servers. Error: {error_msg}. This appears to be a Heroku networking issue.'
             }), 503
         else:
-            return jsonify({'error': f'Transcription failed: {error_msg}'}), 500
+            return jsonify({'error': f'Transcription failed: {error_type}: {error_msg}'}), 500
 
 @api_routes_v2.route('/test-api-key', methods=['GET'])
 def test_api_key():
@@ -143,6 +149,54 @@ def test_api_key():
 def ping():
     """Simple ping endpoint"""
     return jsonify({'status': 'ok', 'message': 'Speech endpoint is alive'}), 200
+
+@api_routes_v2.route('/test-openai-connection', methods=['GET'])
+def test_openai_connection():
+    """Test OpenAI connectivity directly"""
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        return jsonify({'error': 'No API key configured'}), 400
+    
+    try:
+        from openai import OpenAI
+        import httpx
+        
+        # Test with same client configuration
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(10.0, connect=5.0),
+            follow_redirects=True
+        )
+        
+        client = OpenAI(
+            api_key=api_key,
+            http_client=http_client,
+            max_retries=0
+        )
+        
+        # Try a simple API call
+        current_app.logger.info("Testing OpenAI connection...")
+        models = client.models.list()
+        
+        http_client.close()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Successfully connected to OpenAI',
+            'models_count': len(list(models))
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        current_app.logger.error(f"OpenAI connection test failed: {e}")
+        current_app.logger.error(f"Full trace: {error_details}")
+        
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'error_type': type(e).__name__,
+            'details': error_details
+        }), 500
 
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required
