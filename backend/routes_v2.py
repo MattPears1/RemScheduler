@@ -53,11 +53,23 @@ def speech_to_task():
             current_app.logger.info("Starting transcription with Whisper API")
             
             with open(temp_path, 'rb') as audio:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio,
-                    language="en"  # Force English
-                )
+                # Add timeout and better error handling
+                try:
+                    transcript = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=audio,
+                        language="en",  # Force English
+                        timeout=30.0  # 30 second timeout
+                    )
+                except Exception as api_error:
+                    current_app.logger.error(f"OpenAI API error: {str(api_error)}")
+                    # Return a more user-friendly error
+                    if "Connection error" in str(api_error) or "timed out" in str(api_error):
+                        return jsonify({'error': 'Connection to transcription service timed out. Please try again.'}), 503
+                    elif "quota" in str(api_error).lower():
+                        return jsonify({'error': 'API quota exceeded. Please try again later.'}), 503
+                    else:
+                        return jsonify({'error': f'Transcription failed: {str(api_error)}'}), 500
             
             # Get the transcribed text
             transcribed_text = transcript.text
@@ -283,3 +295,46 @@ def get_windows():
     # This endpoint exists for compatibility but returns empty list
     # The frontend should rely on WebSocket updates instead
     return jsonify([])
+
+@api_routes_v2.route('/health/openai', methods=['GET'])
+def health_openai():
+    """Health check for OpenAI API connectivity"""
+    try:
+        client = get_openai_client()
+        if not client:
+            return jsonify({
+                'status': 'error',
+                'message': 'OpenAI client not initialized'
+            }), 503
+        
+        # Try a simple API call with short timeout
+        try:
+            import httpx
+            # Create a test client with very short timeout
+            test_client = httpx.Client(timeout=5.0)
+            response = test_client.get('https://api.openai.com/v1/models', 
+                                     headers={'Authorization': f'Bearer {os.environ.get("OPENAI_API_KEY")}'})
+            test_client.close()
+            
+            if response.status_code == 200:
+                return jsonify({
+                    'status': 'healthy',
+                    'message': 'OpenAI API is accessible'
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'OpenAI API returned status {response.status_code}'
+                }), 503
+                
+        except Exception as e:
+            return jsonify({
+                'status': 'error',
+                'message': f'Cannot reach OpenAI API: {str(e)}'
+            }), 503
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Health check failed: {str(e)}'
+        }), 500
