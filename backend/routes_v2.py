@@ -262,6 +262,22 @@ def get_tasks():
     
     return jsonify(all_transcripts), 200
 
+@api_routes_v2.route('/test-openai', methods=['GET'])
+@login_required  
+def test_openai():
+    """Test OpenAI client initialization"""
+    try:
+        client = get_openai_client()
+        return jsonify({
+            'success': client is not None,
+            'message': 'OpenAI client initialized' if client else 'Failed to initialize'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @api_routes_v2.route('/windows', methods=['GET'])
 @login_required
 def get_windows():
