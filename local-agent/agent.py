@@ -29,10 +29,11 @@ class WindowsLocalAgent:
         self.config.read(config_file)
         
         self.server_url = self.config.get('server', 'url', fallback='http://localhost:5000')
-        self.api_key = self.config.get('server', 'api_key', fallback='')
+        self.username = self.config.get('auth', 'username', fallback='')
+        self.password = self.config.get('auth', 'password', fallback='')
         
-        if not self.api_key:
-            logger.error("No API key found in config.ini")
+        if not self.username or not self.password:
+            logger.error("No username/password found in config.ini")
             sys.exit(1)
         
         # Initialize SocketIO client
@@ -52,7 +53,10 @@ class WindowsLocalAgent:
             logger.info(f"Connected to server at {self.server_url}")
             self.connected = True
             # Authenticate immediately
-            self.sio.emit('agent_auth', {'api_key': self.api_key})
+            self.sio.emit('agent_auth', {
+                'username': self.username,
+                'password': self.password
+            })
         
         @self.sio.event
         def disconnect():

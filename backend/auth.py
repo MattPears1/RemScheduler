@@ -50,41 +50,7 @@ def get_current_user():
         'username': current_user.username
     })
 
-@auth_routes.route('/agent-key', methods=['POST'])
-@login_required
-def generate_agent_key():
-    """Generate a new API key for local agent"""
-    try:
-        data = request.json
-        
-        # Generate secure API key
-        api_key = secrets.token_urlsafe(32)
-        
-        # Create or update agent
-        agent = LocalAgent.query.filter_by(
-            user_id=current_user.id,
-            name=data['name']
-        ).first()
-        
-        if not agent:
-            agent = LocalAgent(
-                user_id=current_user.id,
-                name=data['name']
-            )
-        
-        agent.set_api_key(api_key)
-        db.session.add(agent)
-        db.session.commit()
-        
-        return jsonify({
-            'agent_id': agent.id,
-            'api_key': api_key,
-            'message': 'API key generated successfully. Save this key securely - it cannot be retrieved again.'
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Failed to generate API key'}), 500
+# API key generation removed - using username/password authentication
 
 @auth_routes.route('/agents', methods=['GET'])
 @login_required

@@ -16,23 +16,33 @@ def register_websocket_handlers(socketio):
     def handle_agent_auth(data):
         """Authenticate local agent connection"""
         try:
-            api_key = data.get('api_key')
-            if not api_key:
-                emit('auth_error', {'error': 'No API key provided'})
+            username = data.get('username')
+            password = data.get('password')
+            
+            if not username or not password:
+                emit('auth_error', {'error': 'Username and password required'})
                 disconnect()
                 return
             
-            # Find agent by checking API key
-            agent = None
-            for a in LocalAgent.query.all():
-                if a.check_api_key(api_key):
-                    agent = a
-                    break
+            # Authenticate user
+            from backend.models import User
+            user = User.query.filter_by(username=username).first()
             
+            if not user or not user.check_password(password):
+                emit('auth_error', {'error': 'Invalid credentials'})
+                disconnect()
+                return
+            
+            # Create or get agent for this user
+            agent = LocalAgent.query.filter_by(user_id=user.id).first()
             if not agent:
-                emit('auth_error', {'error': 'Invalid API key'})
-                disconnect()
-                return
+                agent = LocalAgent(
+                    user_id=user.id,
+                    name='Desktop Agent',
+                    api_key_hash='not_used'  # We're not using API keys anymore
+                )
+                db.session.add(agent)
+                db.session.commit()
             
             # Update agent status
             agent.is_online = True
