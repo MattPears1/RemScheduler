@@ -5,7 +5,7 @@ import json
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import configparser
 import socketio
 import win32gui
@@ -16,6 +16,7 @@ import win32clipboard
 import psutil
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
+import pytz
 
 # Configure logging
 logging.basicConfig(
@@ -64,8 +65,16 @@ class LocalAgentV2:
     def init_database(self):
         """Initialize local SQLite database"""
         self.db_path = 'local_messages.db'
-        conn = sqlite3.connect(self.db_path)
+        # Set up datetime adapter for SQLite
+        sqlite3.register_adapter(datetime, lambda dt: dt.isoformat())
+        sqlite3.register_converter("timestamp", lambda b: datetime.fromisoformat(b.decode()))
+        
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         cursor = conn.cursor()
+        
+        # Enable WAL mode for better concurrency
+        cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.execute('PRAGMA busy_timeout=5000')  # 5 second timeout
         
         # Create tables
         cursor.execute('''
@@ -129,7 +138,11 @@ class LocalAgentV2:
         @self.sio.event
         def schedule_job(data):
             """Handle job scheduling from server"""
-            logger.info(f"Received schedule request: {data}")
+            logger.info(f"=== RECEIVED SCHEDULE REQUEST ===")
+            logger.info(f"Job group ID: {data.get('job_group_id', 'N/A')}")
+            logger.info(f"Number of jobs: {len(data.get('jobs', []))}")
+            for i, job in enumerate(data.get('jobs', [])):
+                logger.info(f"Job {i+1}: {job.get('message_text', '')[:50]}... at {job.get('scheduled_time', 'N/A')}")
             self.handle_schedule_request(data)
         
         @self.sio.event
@@ -160,7 +173,9 @@ class LocalAgentV2:
     def handle_schedule_request(self, data):
         """Handle scheduling request from server"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             
             job_group_id = data['job_group_id']
@@ -183,8 +198,18 @@ class LocalAgentV2:
                 job_id = cursor.lastrowid
                 
                 # Schedule with APScheduler
-                run_time = datetime.fromisoformat(job['scheduled_time'].replace('Z', '+00:00'))
-                if run_time > datetime.now():
+                # Parse ISO format datetime and convert to timezone-aware datetime
+                scheduled_str = job['scheduled_time'].replace('Z', '+00:00')
+                run_time = datetime.fromisoformat(scheduled_str)
+                
+                # Ensure run_time is timezone-aware
+                if run_time.tzinfo is None:
+                    run_time = pytz.UTC.localize(run_time)
+                
+                # Get current time as timezone-aware
+                now_utc = datetime.now(timezone.utc)
+                
+                if run_time > now_utc:
                     self.scheduler.add_job(
                         func=self.execute_job,
                         trigger=DateTrigger(run_date=run_time),
@@ -214,7 +239,9 @@ class LocalAgentV2:
     
     def execute_job(self, job_id):
         """Execute a scheduled job"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         
         try:
@@ -274,7 +301,7 @@ class LocalAgentV2:
                 UPDATE scheduled_jobs 
                 SET status = 'SENT', executed_at = ?
                 WHERE id = ?
-            ''', (datetime.now(), job_id))
+            ''', (datetime.now(timezone.utc), job_id))
             
             logger.info(f"Successfully executed job {job_id}")
             
@@ -350,7 +377,9 @@ class LocalAgentV2:
         if not self.connected:
             return
         
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         
         # Get all jobs grouped by job_group_id
@@ -389,7 +418,9 @@ class LocalAgentV2:
     def handle_job_update(self, data):
         """Handle job update request"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             
             job_id = data['job_id']
@@ -421,7 +452,9 @@ class LocalAgentV2:
     def handle_job_cancel(self, data):
         """Handle job cancellation"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             
             job_id = data['job_id']
@@ -450,7 +483,9 @@ class LocalAgentV2:
     
     def save_transcript(self, text):
         """Save transcript locally"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         cursor.execute('INSERT INTO transcripts (text) VALUES (?)', (text,))
         conn.commit()
@@ -462,7 +497,9 @@ class LocalAgentV2:
         if not self.connected:
             return
         
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         cursor.execute('SELECT id, text, created_at FROM transcripts ORDER BY created_at DESC')
         
@@ -480,25 +517,35 @@ class LocalAgentV2:
     
     def reschedule_pending_jobs(self):
         """Reschedule pending jobs on startup"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
         cursor = conn.cursor()
         
         cursor.execute('''
             SELECT id, scheduled_time 
             FROM scheduled_jobs 
             WHERE status = 'PENDING' AND scheduled_time > ?
-        ''', (datetime.now(),))
+        ''', (datetime.now(timezone.utc).isoformat(),))
         
         for job_id, scheduled_time in cursor.fetchall():
+            # Parse stored datetime string
             run_time = datetime.fromisoformat(scheduled_time)
-            self.scheduler.add_job(
-                func=self.execute_job,
-                trigger=DateTrigger(run_date=run_time),
-                args=[job_id],
-                id=f"job_{job_id}",
-                replace_existing=True
-            )
-            logger.info(f"Rescheduled job {job_id} for {run_time}")
+            
+            # Ensure it's timezone-aware
+            if run_time.tzinfo is None:
+                run_time = pytz.UTC.localize(run_time)
+            
+            # Only schedule if still in the future
+            if run_time > datetime.now(timezone.utc):
+                self.scheduler.add_job(
+                    func=self.execute_job,
+                    trigger=DateTrigger(run_date=run_time),
+                    args=[job_id],
+                    id=f"job_{job_id}",
+                    replace_existing=True
+                )
+                logger.info(f"Rescheduled job {job_id} for {run_time}")
         
         conn.close()
     

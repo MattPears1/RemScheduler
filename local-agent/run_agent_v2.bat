@@ -1,7 +1,7 @@
 @echo off
-echo Starting RemScheduler Local Agent...
+echo Starting RemScheduler Local Agent V2...
 echo.
-echo This agent will connect to your Heroku app and monitor command prompt windows.
+echo This version stores all data locally and manages scheduling independently.
 echo Press Ctrl+C to stop.
 echo.
 
@@ -15,11 +15,12 @@ if errorlevel 1 (
 )
 
 REM Install dependencies if needed
-if not exist ".deps_installed" (
+if not exist ".deps_installed_v2" (
     echo Installing dependencies...
     pip install -r requirements-windows.txt
+    pip install apscheduler
     if errorlevel 0 (
-        echo. > .deps_installed
+        echo. > .deps_installed_v2
         echo Dependencies installed successfully!
         echo.
     ) else (
@@ -29,9 +30,9 @@ if not exist ".deps_installed" (
     )
 )
 
-REM Run the agent
-echo Starting agent...
-python agent.py
+REM Run the V2 agent
+echo Starting agent V2...
+python agent_v2.py
 
 REM If the agent exits, pause so user can see any error messages
 echo.

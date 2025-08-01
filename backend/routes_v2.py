@@ -4,20 +4,26 @@ from datetime import datetime, timedelta
 import uuid
 import openai
 import os
+import tempfile
 from werkzeug.utils import secure_filename
 from backend.db import db
 from backend.websocket_handlers import agent_windows, connected_agents
 
 api_routes_v2 = Blueprint('api_v2', __name__)
 
-# Configure OpenAI
-openai.api_key = os.environ.get('OPENAI_API_KEY')
+# Configure OpenAI client
+openai_client = None
+if os.environ.get('OPENAI_API_KEY'):
+    openai_client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
 @login_required
 def speech_to_task():
     """Convert speech audio to text"""
     try:
+        if not openai_client:
+            return jsonify({'error': 'OpenAI API key not configured'}), 500
+            
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file provided'}), 400
         
@@ -25,30 +31,44 @@ def speech_to_task():
         if audio_file.filename == '':
             return jsonify({'error': 'No audio file selected'}), 400
         
-        # Save temporary file
-        temp_path = f"/tmp/{secure_filename(audio_file.filename)}"
-        audio_file.save(temp_path)
+        # Save temporary file with proper extension
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
+            audio_file.save(temp_file.name)
+            temp_path = temp_file.name
         
-        # Transcribe using OpenAI Whisper
-        with open(temp_path, 'rb') as audio:
-            transcript = openai.Audio.transcribe("whisper-1", audio)
-        
-        # Clean up temp file
-        os.remove(temp_path)
-        
-        # Send to agent to save locally
-        from app import socketio
-        socketio.emit('save_transcript', {
-            'text': transcript['text']
-        })
-        
-        return jsonify({
-            'transcribed_text': transcript['text']
-        }), 201
+        try:
+            # Transcribe using OpenAI Whisper with new client API
+            with open(temp_path, 'rb') as audio:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio,
+                    language="en",  # Force English
+                    prompt="Transcribe the following audio to English text."
+                )
+            
+            # Get the transcribed text
+            transcribed_text = transcript.text
+            
+            # Send to agent to save locally
+            from app import socketio
+            socketio.emit('save_transcript', {
+                'text': transcribed_text
+            })
+            
+            return jsonify({
+                'transcribed_text': transcribed_text
+            }), 201
+            
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
         
     except Exception as e:
         current_app.logger.error(f"Speech-to-task error: {str(e)}")
-        return jsonify({'error': 'Failed to process audio'}), 500
+        return jsonify({'error': f'Failed to process audio: {str(e)}'}), 500
 
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required

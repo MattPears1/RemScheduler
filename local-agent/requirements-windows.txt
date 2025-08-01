@@ -1,11 +1,8 @@
 # WebSocket client
 python-socketio[client]==5.10.0
 
-# Windows API
-pywin32==307
+# Windows API (for Windows only)
+pywin32>=307
 
 # Process utilities
 psutil==5.9.6
-
-# Standard library
-configparser
