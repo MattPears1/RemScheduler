@@ -42,7 +42,18 @@ def speech_to_task():
     
     # Get audio file
     audio_file = request.files['audio']
-    current_app.logger.info(f"Received audio file: {audio_file.filename}, size: {audio_file.content_length}")
+    current_app.logger.info(f"Received audio file: {audio_file.filename}")
+    
+    # Check file size (Heroku timeout workaround)
+    audio_file.seek(0, 2)  # Seek to end
+    file_size = audio_file.tell()
+    audio_file.seek(0)  # Reset to beginning
+    
+    if file_size > 1024 * 1024:  # 1MB limit for immediate processing
+        current_app.logger.warning(f"Audio file too large: {file_size} bytes")
+        return jsonify({
+            'error': 'Audio file too large. Please record a shorter message (max 30 seconds).'
+        }), 413
     
     # Create temp file
     import tempfile
@@ -50,25 +61,36 @@ def speech_to_task():
         with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
             audio_file.save(tmp.name)
             temp_path = tmp.name
-            current_app.logger.info(f"Saved audio to: {temp_path}")
+            current_app.logger.info(f"Saved audio to: {temp_path}, size: {file_size}")
     except Exception as e:
         current_app.logger.error(f"Failed to save audio: {e}")
         return jsonify({'error': 'Failed to save audio file'}), 500
     
-    # Try to transcribe
+    # Try to transcribe with short timeout
     try:
         from openai import OpenAI
+        import httpx
         
-        # Create client
-        client = OpenAI(api_key=api_key)
-        current_app.logger.info("OpenAI client created")
+        # Create client with shorter timeout for Heroku
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(25.0, connect=5.0),  # Total 25s (under Heroku's 30s)
+            follow_redirects=True
+        )
+        
+        client = OpenAI(
+            api_key=api_key,
+            http_client=http_client,
+            max_retries=0  # No retries to avoid timeout
+        )
+        current_app.logger.info("OpenAI client created with 25s timeout")
         
         # Open file and transcribe
         with open(temp_path, 'rb') as f:
             current_app.logger.info("Calling Whisper API...")
             result = client.audio.transcriptions.create(
                 model="whisper-1",
-                file=f
+                file=f,
+                language="en"  # Force English for faster processing
             )
         
         current_app.logger.info(f"Transcription successful: {result.text[:50]}...")
@@ -76,6 +98,7 @@ def speech_to_task():
         # Clean up
         try:
             os.unlink(temp_path)
+            http_client.close()
         except:
             pass
         
@@ -87,15 +110,21 @@ def speech_to_task():
         # Clean up
         try:
             os.unlink(temp_path)
+            if 'http_client' in locals():
+                http_client.close()
         except:
             pass
         
         # Return error
         error_msg = str(e)
         if 'timeout' in error_msg.lower():
-            return jsonify({'error': 'Request timed out. Audio file may be too large.'}), 504
+            return jsonify({
+                'error': 'Request timed out. Try recording a shorter message.'
+            }), 504
         elif 'connection' in error_msg.lower():
-            return jsonify({'error': 'Cannot connect to OpenAI servers from Heroku'}), 503
+            return jsonify({
+                'error': 'Cannot reach OpenAI servers. This is a known Heroku limitation. Try again or use a shorter recording.'
+            }), 503
         else:
             return jsonify({'error': f'Transcription failed: {error_msg}'}), 500
 
@@ -267,7 +296,6 @@ def get_tasks():
     
     return jsonify(all_transcripts), 200
 
-
 @api_routes_v2.route('/windows', methods=['GET'])
 @login_required
 def get_windows():
@@ -276,4 +304,3 @@ def get_windows():
     # This endpoint exists for compatibility but returns empty list
     # The frontend should rely on WebSocket updates instead
     return jsonify([])
-
