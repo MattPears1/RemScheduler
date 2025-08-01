@@ -24,7 +24,10 @@ function connectSocket() {
     });
     
     state.socket.on('windows_updated', (data) => {
-        console.log('🪟 Windows updated:', data.windows);
+        // Only log windows updates if we're on a screen that needs them
+        if (state.currentScreen === 'schedule') {
+            console.log('🪟 Windows updated:', data.windows);
+        }
         state.windows = data.windows;
         updateWindowsList();
     });
@@ -187,44 +190,32 @@ recordBtn.addEventListener('click', async () => {
         // Fall back to server-based recording
         if (!state.mediaRecorder) {
             // Start recording
-            console.log('🎤 Starting audio recording (server-based)...');
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log('✅ Microphone access granted');
-                console.log('🎵 Audio stream:', stream);
                 state.mediaRecorder = new MediaRecorder(stream);
                 state.audioChunks = [];
                 
                 state.mediaRecorder.ondataavailable = (event) => {
-                    console.log('📦 Audio chunk received, size:', event.data.size);
                     state.audioChunks.push(event.data);
                 };
                 
                 state.mediaRecorder.onstop = async () => {
-                    console.log('🛑 Recording stopped');
-                    console.log('📦 Total chunks:', state.audioChunks.length);
                     const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
-                    console.log('🎙️ Audio blob created, size:', audioBlob.size, 'type:', audioBlob.type);
                     await processAudio(audioBlob);
                 };
                 
                 state.mediaRecorder.start();
-                console.log('✅ MediaRecorder started');
                 recordBtn.classList.add('recording');
                 recordText.textContent = 'Stop Recording';
                 recordingIndicator.style.display = 'flex';
                 
             } catch (error) {
-                console.error('❌ Recording error:', error);
-                console.error('Error details:', error.message, error.stack);
                 alert('Could not access microphone: ' + error.message);
             }
         } else {
             // Stop recording
-            console.log('🛑 Stopping recording...');
             state.mediaRecorder.stop();
             state.mediaRecorder.stream.getTracks().forEach(track => {
-                console.log('🔇 Stopping audio track:', track.label);
                 track.stop();
             });
             state.mediaRecorder = null;
@@ -237,7 +228,6 @@ recordBtn.addEventListener('click', async () => {
 });
 
 async function processAudio(audioBlob) {
-    console.log('🎙️ Processing audio blob...');
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.webm');
     
@@ -253,11 +243,21 @@ async function processAudio(audioBlob) {
             document.getElementById('proceed-schedule').disabled = false;
             state.currentTask = data;
         } else {
-            const errorData = await response.json();
-            alert('Failed to transcribe audio: ' + (errorData.error || 'Unknown error'));
+            // Try to get JSON error message
+            try {
+                const errorData = await response.json();
+                alert(errorData.error || 'Failed to transcribe audio');
+            } catch {
+                // If not JSON, it's probably Heroku error page
+                if (response.status === 503) {
+                    alert('Service temporarily unavailable. Please check Heroku logs.');
+                } else {
+                    alert('Failed to transcribe audio');
+                }
+            }
         }
     } catch (error) {
-        alert('Failed to process audio. Please try again.');
+        alert('Network error. Please check your connection.');
     }
 }
 
