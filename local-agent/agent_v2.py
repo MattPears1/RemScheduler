@@ -139,6 +139,8 @@ class LocalAgentV2:
             self.send_window_list()
             # Send current job status
             self.send_job_status()
+            # Send saved transcripts
+            self.send_transcripts()
         
         @self.sio.event
         def auth_error(data):
@@ -184,6 +186,11 @@ class LocalAgentV2:
         def get_transcripts(data):
             """Send saved transcripts"""
             self.send_transcripts()
+        
+        @self.sio.event
+        def delete_transcript(data):
+            """Delete a transcript"""
+            self.delete_transcript(data['id'])
     
     def handle_schedule_request(self, data):
         """Handle scheduling request from server"""
@@ -560,6 +567,26 @@ class LocalAgentV2:
         conn.close()
         
         self.sio.emit('agent_transcripts', {'transcripts': transcripts})
+    
+    def delete_transcript(self, transcript_id):
+        """Delete a transcript by ID"""
+        try:
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
+            cursor = conn.cursor()
+            
+            cursor.execute('DELETE FROM transcripts WHERE id = ?', (transcript_id,))
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"Deleted transcript {transcript_id}")
+            
+            # Send updated transcripts
+            self.send_transcripts()
+            
+        except Exception as e:
+            logger.error(f"Failed to delete transcript: {str(e)}")
     
     def reschedule_pending_jobs(self):
         """Reschedule pending jobs on startup"""

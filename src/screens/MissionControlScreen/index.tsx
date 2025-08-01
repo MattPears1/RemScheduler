@@ -18,7 +18,7 @@ import { useHaptic } from '@hooks/useHaptic';
 export const MissionControlScreen: React.FC = () => {
   const queryClient = useQueryClient();
   const haptic = useHaptic();
-  const { socket, windows } = useSocketStore();
+  const { socket, windows, jobs } = useSocketStore();
   const [editingJob, setEditingJob] = useState<any>(null);
   const [rescheduleJob, setRescheduleJob] = useState<any>(null);
 
@@ -26,6 +26,8 @@ export const MissionControlScreen: React.FC = () => {
     queryKey: ['jobs'],
     queryFn: apiService.getJobs,
     refetchInterval: 5000,
+    // Use socket data if available
+    initialData: jobs,
   });
   
   const handleRefresh = async () => {

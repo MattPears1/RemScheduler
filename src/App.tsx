@@ -10,6 +10,7 @@ import { LoginScreen } from '@screens/LoginScreen';
 import { ProtectedRoute } from '@components/ProtectedRoute';
 import { AnimatedRoutes } from '@components/AnimatedRoutes';
 import { OfflineIndicator } from '@components/OfflineIndicator';
+import { AgentStatus } from '@components/AgentStatus';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -63,6 +64,7 @@ function App() {
         }}
       />
       <OfflineIndicator />
+      <AgentStatus />
     </QueryClientProvider>
   );
 }

@@ -23,9 +23,13 @@ export const SavedMessagesScreen: React.FC = () => {
   const [selectedMessage, setSelectedMessage] = useState<SavedMessage | null>(null);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
 
+  const { savedMessages } = useSocketStore();
+  
   const { data: messages = [], isLoading } = useQuery({
     queryKey: ['saved-messages'],
     queryFn: apiService.getSavedMessages,
+    // Use socket data if available, otherwise fetch from API
+    initialData: savedMessages,
   });
 
   const deleteMutation = useMutation({

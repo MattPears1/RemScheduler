@@ -21,11 +21,20 @@ export const useSocketStore = create<SocketState>((set, get) => ({
   savedMessages: [],
 
   connectSocket: () => {
-    const socket = io(window.location.origin);
+    const { socket: existingSocket } = get();
+    if (existingSocket?.connected) return;
+    
+    const socket = io(window.location.origin, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
+    });
     
     socket.on('connect', () => {
       console.log('Connected to server');
       socket.emit('web_connect');
+      toast.success('Connected to server');
     });
 
     socket.on('windows_updated', (data: { windows: Window[] }) => {
@@ -53,13 +62,28 @@ export const useSocketStore = create<SocketState>((set, get) => ({
       toast.success('Agent connected');
     });
 
-    socket.on('agent_disconnected', () => {
+    socket.on('agent_disconnected', (data: any) => {
       set({ isAgentOnline: false });
-      toast.error('Agent disconnected');
+      toast.error('Local Agent disconnected');
+      console.log('Agent disconnected:', data);
+    });
+    
+    socket.on('disconnect', (reason) => {
+      console.log('Disconnected from server:', reason);
+      if (reason === 'io server disconnect') {
+        // Server initiated disconnect, try to reconnect
+        socket.connect();
+      }
+    });
+    
+    socket.on('connect_error', (error) => {
+      console.error('Connection error:', error.message);
     });
 
     socket.on('schedule_confirmed', (data: any) => {
-      toast.success(`Scheduled ${data.jobs_created} message${data.jobs_created > 1 ? 's' : ''}`);
+      toast.success(`Scheduled ${data.jobs_created || 1} message${(data.jobs_created || 1) > 1 ? 's' : ''}`);
+      // Request updated jobs
+      socket.emit('get_jobs');
     });
 
     socket.on('rate_limit_active', (data: { reset_time: string }) => {

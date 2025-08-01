@@ -2,11 +2,19 @@ import { CreateTaskData, JobGroup, SavedMessage } from '@types';
 
 class ApiService {
   private baseUrl = '/api';
+  
+  private getHeaders(): HeadersInit {
+    return {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+  }
 
   async scheduleTask(data: CreateTaskData): Promise<{ job_group_id: string }> {
     const response = await fetch(`${this.baseUrl}/schedule`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.getHeaders(),
+      credentials: 'include',
       body: JSON.stringify(data),
     });
 
@@ -18,14 +26,28 @@ class ApiService {
   }
 
   async getJobs(): Promise<JobGroup[]> {
-    const response = await fetch(`${this.baseUrl}/jobs`);
-    return response.json();
+    try {
+      const response = await fetch(`${this.baseUrl}/jobs`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        console.error('Failed to fetch jobs:', response.status, response.statusText);
+        return [];
+      }
+      const data = await response.json();
+      console.log('Fetched jobs:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+      return [];
+    }
   }
 
   async updateJob(jobId: number, data: any): Promise<void> {
     const response = await fetch(`${this.baseUrl}/jobs/${jobId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.getHeaders(),
+      credentials: 'include',
       body: JSON.stringify(data),
     });
 
@@ -37,6 +59,7 @@ class ApiService {
   async cancelJob(jobId: number): Promise<void> {
     const response = await fetch(`${this.baseUrl}/jobs/${jobId}`, {
       method: 'DELETE',
+      credentials: 'include',
     });
 
     if (!response.ok) {
@@ -67,8 +90,21 @@ class ApiService {
   }
 
   async getSavedMessages(): Promise<SavedMessage[]> {
-    const response = await fetch(`${this.baseUrl}/tasks`);
-    return response.json();
+    try {
+      const response = await fetch(`${this.baseUrl}/tasks`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        console.error('Failed to fetch saved messages:', response.status, response.statusText);
+        return [];
+      }
+      const data = await response.json();
+      console.log('Fetched saved messages:', data);
+      return data;
+    } catch (error) {
+      console.error('Error fetching saved messages:', error);
+      return [];
+    }
   }
 
   async deleteSavedMessage(id: number): Promise<void> {
@@ -84,7 +120,8 @@ class ApiService {
   async saveMessage(text: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/save-message`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.getHeaders(),
+      credentials: 'include',
       body: JSON.stringify({ text }),
     });
 

@@ -57,6 +57,12 @@ def register_websocket_handlers_v2(socketio):
             emit('auth_success', {'agent_id': agent.id})
             current_app.logger.info(f"Agent {agent.name} connected")
             
+            # Notify all web clients that agent is online
+            socketio.emit('agent_connected', {
+                'agent_id': agent.id,
+                'agent_name': agent.name
+            }, room=None)
+            
         except Exception as e:
             current_app.logger.error(f"Agent auth error: {str(e)}")
             emit('auth_error', {'error': 'Authentication failed'})
@@ -216,6 +222,14 @@ def register_websocket_handlers_v2(socketio):
     def handle_web_connect():
         """Handle web client connection"""
         current_app.logger.info(f"Web client connected: {request.sid}")
+        
+        # Send agent connection status
+        if connected_agents:
+            for sid, agent in connected_agents.items():
+                emit('agent_connected', {
+                    'agent_id': agent.id,
+                    'agent_name': agent.name
+                })
         
         # Send current state to web client
         for agent_id, windows in agent_windows.items():

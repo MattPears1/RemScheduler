@@ -389,6 +389,22 @@ def save_message():
         current_app.logger.error(f"Save message error: {str(e)}")
         return jsonify({'error': 'Failed to save message'}), 500
 
+@api_routes_v2.route('/tasks/<int:task_id>', methods=['DELETE'])
+@login_required
+def delete_task(task_id):
+    """Delete a saved message/transcript"""
+    try:
+        from app import socketio
+        
+        # Send delete request to agent
+        socketio.emit('delete_transcript', {'id': task_id})
+        
+        return jsonify({'message': 'Delete request sent to agent'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Delete task error: {str(e)}")
+        return jsonify({'error': 'Failed to delete task'}), 500
+
 @api_routes_v2.route('/windows', methods=['GET'])
 @login_required
 def get_windows():
