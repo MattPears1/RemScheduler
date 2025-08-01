@@ -7,7 +7,6 @@ import os
 import tempfile
 from werkzeug.utils import secure_filename
 from backend.db import db
-from backend.websocket_handlers import agent_windows, connected_agents
 
 api_routes_v2 = Blueprint('api_v2', __name__)
 
@@ -210,7 +209,7 @@ def get_tasks():
 @login_required
 def get_windows():
     """Get list of available windows from connected agents"""
-    windows = []
-    for agent_id, agent_windows_list in agent_windows.items():
-        windows.extend(agent_windows_list)
-    return jsonify(windows)
+    # In V2, windows are managed by the agent and sent via WebSocket
+    # This endpoint exists for compatibility but returns empty list
+    # The frontend should rely on WebSocket updates instead
+    return jsonify([])
