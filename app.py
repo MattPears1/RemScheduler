@@ -1,6 +1,6 @@
 import os
 import logging
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit, disconnect
 from flask_login import LoginManager
@@ -12,7 +12,7 @@ import jwt
 load_dotenv()
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, static_folder='dist', static_url_path='')
 
 # Debug OpenAI API key
 print(f"[APP INIT] OPENAI_API_KEY present: {bool(os.environ.get('OPENAI_API_KEY'))}")
@@ -46,7 +46,15 @@ system_state = {
 @app.route('/')
 def index():
     """Serve the main application page"""
-    return render_template('index.html')
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    """Serve static files"""
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/health')
 def health_check():
