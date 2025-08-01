@@ -9,11 +9,20 @@ from backend.db import db
 
 api_routes_v2 = Blueprint('api_v2', __name__)
 
-@api_routes_v2.route('/speech-to-task', methods=['POST'])
+@api_routes_v2.route('/speech-to-task', methods=['GET', 'POST'])
 @login_required
 def speech_to_task():
     """Simple speech to text endpoint using OpenAI API"""
     try:
+        # Handle GET request for testing
+        if request.method == 'GET':
+            api_key = os.environ.get('OPENAI_API_KEY')
+            return jsonify({
+                'status': 'ready',
+                'api_key_configured': bool(api_key),
+                'api_key_prefix': api_key[:10] + '...' if api_key else None
+            }), 200
+        
         # Check for audio file
         if 'audio' not in request.files:
             return jsonify({'error': 'No audio file'}), 400
@@ -75,8 +84,15 @@ def speech_to_task():
                     
     except Exception as e:
         # Catch any other errors to prevent 503
+        import traceback
+        error_trace = traceback.format_exc()
         current_app.logger.error(f"Speech-to-task error: {str(e)}")
-        return jsonify({'error': 'Internal server error'}), 500
+        current_app.logger.error(f"Traceback: {error_trace}")
+        return jsonify({
+            'error': 'Internal server error',
+            'details': str(e),
+            'type': type(e).__name__
+        }), 500
 
 @api_routes_v2.route('/test-api-key', methods=['GET'])
 def test_api_key():
