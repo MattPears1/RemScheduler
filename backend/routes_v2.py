@@ -13,6 +13,17 @@ api_routes_v2 = Blueprint('api_v2', __name__)
 # Configure OpenAI client
 openai_client = None
 
+# Try to initialize at module load time
+try:
+    _api_key = os.environ.get('OPENAI_API_KEY')
+    if _api_key:
+        openai_client = openai.OpenAI(api_key=_api_key)
+        print(f"[Module Init] OpenAI client initialized successfully")
+    else:
+        print(f"[Module Init] No OPENAI_API_KEY found")
+except Exception as e:
+    print(f"[Module Init] Failed to initialize OpenAI client: {e}")
+
 def get_openai_client():
     """Get or create OpenAI client"""
     global openai_client
@@ -52,32 +63,27 @@ def speech_to_task():
     try:
         current_app.logger.info("Speech-to-task endpoint called")
         
-        # Try direct initialization as fallback
-        api_key = os.environ.get('OPENAI_API_KEY')
-        current_app.logger.info(f"Direct check - API key present: {bool(api_key)}")
-        
-        if not api_key:
-            # Double-check with Heroku config
-            import subprocess
-            try:
-                result = subprocess.run(['printenv'], capture_output=True, text=True)
-                env_vars = result.stdout
-                current_app.logger.info(f"Environment check: OPENAI in env: {'OPENAI' in env_vars}")
-            except:
-                pass
+        # Use module-level client first
+        global openai_client
+        if openai_client:
+            current_app.logger.info("Using module-level OpenAI client")
+            client = openai_client
+        else:
+            # Try to create one now
+            api_key = os.environ.get('OPENAI_API_KEY')
+            current_app.logger.info(f"Creating new client - API key present: {bool(api_key)}")
             
-            current_app.logger.error("OpenAI API key not found in environment")
-            return jsonify({'error': 'OpenAI API key not configured'}), 500
-        
-        # Try to create client directly
-        try:
-            client = openai.OpenAI(api_key=api_key)
-            current_app.logger.info("Direct OpenAI client creation successful")
-        except Exception as e:
-            current_app.logger.error(f"Direct client creation failed: {e}")
-            client = get_openai_client()
-            if not client:
-                return jsonify({'error': 'Failed to initialize OpenAI client'}), 500
+            if not api_key:
+                current_app.logger.error("No API key found")
+                return jsonify({'error': 'OpenAI API key not configured'}), 500
+            
+            try:
+                client = openai.OpenAI(api_key=api_key)
+                openai_client = client  # Save for next time
+                current_app.logger.info("New OpenAI client created successfully")
+            except Exception as e:
+                current_app.logger.error(f"Failed to create OpenAI client: {e}")
+                return jsonify({'error': f'Failed to initialize OpenAI client: {str(e)}'}), 500
             
         if 'audio' not in request.files:
             current_app.logger.error("No audio file in request")
