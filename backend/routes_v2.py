@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from datetime import datetime, timedelta
 import uuid
-import openai
 import os
 import tempfile
 from werkzeug.utils import secure_filename
@@ -17,12 +16,17 @@ openai_client = None
 try:
     _api_key = os.environ.get('OPENAI_API_KEY')
     if _api_key:
-        openai_client = openai.OpenAI(api_key=_api_key)
+        # Create client with only the API key, no other parameters
+        # This avoids any proxy-related issues
+        from openai import OpenAI as OpenAIClient
+        openai_client = OpenAIClient(api_key=_api_key)
         print(f"[Module Init] OpenAI client initialized successfully")
     else:
         print(f"[Module Init] No OPENAI_API_KEY found")
 except Exception as e:
     print(f"[Module Init] Failed to initialize OpenAI client: {e}")
+    import traceback
+    print(f"[Module Init] Traceback: {traceback.format_exc()}")
 
 def get_openai_client():
     """Get or create OpenAI client"""
@@ -39,7 +43,8 @@ def get_openai_client():
         if api_key:
             try:
                 # Initialize with just the API key, no other parameters
-                openai_client = openai.OpenAI(api_key=api_key)
+                from openai import OpenAI as OpenAIClient
+                openai_client = OpenAIClient(api_key=api_key)
                 current_app.logger.info("OpenAI client initialized successfully")
                 print("[get_openai_client] Client initialized successfully")
             except Exception as e:
@@ -78,11 +83,14 @@ def speech_to_task():
                 return jsonify({'error': 'OpenAI API key not configured'}), 500
             
             try:
-                client = openai.OpenAI(api_key=api_key)
+                from openai import OpenAI as OpenAIClient
+                client = OpenAIClient(api_key=api_key)
                 openai_client = client  # Save for next time
                 current_app.logger.info("New OpenAI client created successfully")
             except Exception as e:
                 current_app.logger.error(f"Failed to create OpenAI client: {e}")
+                import traceback
+                current_app.logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({'error': f'Failed to initialize OpenAI client: {str(e)}'}), 500
             
         if 'audio' not in request.files:
