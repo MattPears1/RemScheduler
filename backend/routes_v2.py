@@ -18,20 +18,21 @@ def get_openai_client():
     global openai_client
     if openai_client is None:
         api_key = os.environ.get('OPENAI_API_KEY')
+        current_app.logger.info(f"Attempting to initialize OpenAI client. API key present: {bool(api_key)}")
+        current_app.logger.info(f"API key length: {len(api_key) if api_key else 0}")
+        
         if api_key:
             try:
                 # Initialize with just the API key, no other parameters
                 openai_client = openai.OpenAI(api_key=api_key)
                 current_app.logger.info("OpenAI client initialized successfully")
             except Exception as e:
-                current_app.logger.error(f"Failed to initialize OpenAI client: {e}")
-                # Try alternative initialization
-                try:
-                    openai.api_key = api_key
-                    openai_client = openai.OpenAI()
-                    current_app.logger.info("OpenAI client initialized with alternative method")
-                except Exception as e2:
-                    current_app.logger.error(f"Alternative initialization also failed: {e2}")
+                current_app.logger.error(f"Failed to initialize OpenAI client: {type(e).__name__}: {str(e)}")
+                import traceback
+                current_app.logger.error(f"Traceback: {traceback.format_exc()}")
+        else:
+            current_app.logger.error("No OPENAI_API_KEY found in environment variables")
+            current_app.logger.error(f"Available env vars: {list(os.environ.keys())}")
     return openai_client
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])

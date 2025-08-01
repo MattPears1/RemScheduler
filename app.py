@@ -13,6 +13,10 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
+
+# Debug OpenAI API key
+print(f"[APP INIT] OPENAI_API_KEY present: {bool(os.environ.get('OPENAI_API_KEY'))}")
+print(f"[APP INIT] OPENAI_API_KEY length: {len(os.environ.get('OPENAI_API_KEY', ''))}")
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///aether.db')
 if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
