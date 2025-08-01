@@ -70,3 +70,6 @@ old_apps_to_combine/
 
 # Critical files
 critical_do_not_do.md
+
+# Project instructions with sensitive data
+instructions.txt
