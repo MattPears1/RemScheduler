@@ -12,12 +12,27 @@ api_routes_v2 = Blueprint('api_v2', __name__)
 
 # Configure OpenAI client
 openai_client = None
-try:
-    if os.environ.get('OPENAI_API_KEY'):
-        openai_client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
-except Exception as e:
-    print(f"Failed to initialize OpenAI client: {e}")
-    openai_client = None
+
+def get_openai_client():
+    """Get or create OpenAI client"""
+    global openai_client
+    if openai_client is None:
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if api_key:
+            try:
+                # Initialize with just the API key, no other parameters
+                openai_client = openai.OpenAI(api_key=api_key)
+                current_app.logger.info("OpenAI client initialized successfully")
+            except Exception as e:
+                current_app.logger.error(f"Failed to initialize OpenAI client: {e}")
+                # Try alternative initialization
+                try:
+                    openai.api_key = api_key
+                    openai_client = openai.OpenAI()
+                    current_app.logger.info("OpenAI client initialized with alternative method")
+                except Exception as e2:
+                    current_app.logger.error(f"Alternative initialization also failed: {e2}")
+    return openai_client
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
 @login_required
@@ -26,7 +41,8 @@ def speech_to_task():
     try:
         current_app.logger.info("Speech-to-task endpoint called")
         
-        if not openai_client:
+        client = get_openai_client()
+        if not client:
             current_app.logger.error("OpenAI client not initialized")
             return jsonify({'error': 'OpenAI API key not configured'}), 500
             
@@ -60,7 +76,7 @@ def speech_to_task():
             current_app.logger.info("Starting transcription with Whisper API")
             
             with open(temp_path, 'rb') as audio:
-                transcript = openai_client.audio.transcriptions.create(
+                transcript = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio,
                     language="en"  # Force English
