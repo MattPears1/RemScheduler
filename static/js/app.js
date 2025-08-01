@@ -36,6 +36,12 @@ function connectSocket() {
     
     state.socket.on('job_status_updated', (data) => {
         console.log('📋 Job status updated:', data);
+        
+        // Show notification for sent messages
+        if (data.status === 'SENT') {
+            showMessageNotification('Message sent successfully!');
+        }
+        
         if (state.currentScreen === 'mission-control') {
             loadMissionControl();
         }
@@ -60,7 +66,7 @@ function connectSocket() {
     // Handle schedule confirmations
     state.socket.on('schedule_confirmed', (data) => {
         console.log('✅ Schedule confirmed:', data);
-        alert(`Successfully scheduled ${data.jobs_created} jobs!`);
+        showMessageNotification(`Successfully scheduled ${data.jobs_created} message${data.jobs_created > 1 ? 's' : ''}!`);
         showScreen('dashboard');
         document.getElementById('task-text').value = '';
         document.getElementById('proceed-schedule').disabled = true;
@@ -317,7 +323,8 @@ function updateSequenceSteps() {
 document.getElementById('submit-schedule').addEventListener('click', async () => {
     console.log('📅 Submit schedule clicked');
     const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
-    const targetWindow = document.getElementById('target-window').value;
+    const targetWindowSelect = document.getElementById('target-window');
+    const targetWindow = targetWindowSelect.value;
     const startTime = document.getElementById('start-time').value;
     const repetitions = parseInt(document.getElementById('repetitions').value);
     const intervalValue = parseInt(document.getElementById('interval-value').value);
@@ -326,8 +333,11 @@ document.getElementById('submit-schedule').addEventListener('click', async () =>
     console.log('📋 Schedule data:', {
         scheduleType, targetWindow, startTime, repetitions, intervalValue, intervalUnit
     });
+    console.log('🪟 Selected window option:', targetWindowSelect.selectedIndex, 'value:', targetWindow);
+    console.log('🪟 Window dropdown HTML:', targetWindowSelect.innerHTML);
     
     if (!targetWindow || !startTime) {
+        console.error('❌ Validation failed - targetWindow:', targetWindow, 'startTime:', startTime);
         alert('Please fill in all required fields');
         return;
     }
@@ -727,6 +737,57 @@ document.getElementById('message-search').addEventListener('input', (e) => {
     });
 });
 
+// Message notification function
+function showMessageNotification(message) {
+    console.log('🔔 Showing notification:', message);
+    
+    // Request notification permission if not granted
+    if ('Notification' in window && Notification.permission === 'default') {
+        console.log('📱 Requesting notification permission...');
+        Notification.requestPermission();
+    }
+    
+    // Show browser notification if permitted
+    if ('Notification' in window && Notification.permission === 'granted') {
+        console.log('📱 Creating browser notification');
+        const notification = new Notification('RemScheduler', {
+            body: message,
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            vibrate: [200, 100, 200]
+        });
+        
+        // Close after 5 seconds
+        setTimeout(() => notification.close(), 5000);
+    }
+    
+    // Show in-app notification
+    const notificationDiv = document.createElement('div');
+    notificationDiv.className = 'notification-popup';
+    notificationDiv.textContent = message;
+    notificationDiv.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background-color: var(--success-color);
+        color: white;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        font-weight: 500;
+        box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
+        z-index: 9999;
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    document.body.appendChild(notificationDiv);
+    
+    // Remove after 5 seconds
+    setTimeout(() => {
+        notificationDiv.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => notificationDiv.remove(), 300);
+    }, 5000);
+}
+
 // Check authentication on load
 window.addEventListener('load', async () => {
     try {
@@ -736,6 +797,12 @@ window.addEventListener('load', async () => {
             connectSocket();
             showScreen('dashboard');
             updateAgentStatus();
+            
+            // Request notification permission on load
+            if ('Notification' in window && Notification.permission === 'default') {
+                console.log('📱 Requesting notification permission on load...');
+                Notification.requestPermission();
+            }
         }
     } catch (error) {
         console.error('Auth check error:', error);

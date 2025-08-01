@@ -156,11 +156,19 @@ def schedule_job():
 @api_routes_v2.route('/jobs', methods=['GET'])
 @login_required
 def get_jobs():
-    """Request job list from agent"""
+    """Request job list from agent and return cached data"""
     from app import socketio
+    from backend.websocket_handlers_v2 import agent_jobs
+    
+    # Request fresh data from agent
     socketio.emit('get_jobs', {})
-    # Agent will respond via WebSocket with agent_jobs_status
-    return jsonify({'message': 'Requesting jobs from agent'}), 200
+    
+    # Return cached jobs immediately if available
+    all_job_groups = []
+    for agent_id, job_groups in agent_jobs.items():
+        all_job_groups.extend(job_groups)
+    
+    return jsonify(all_job_groups), 200
 
 @api_routes_v2.route('/jobs/<int:job_id>', methods=['PUT'])
 @login_required
@@ -223,11 +231,19 @@ def reschedule_job(job_id):
 @api_routes_v2.route('/tasks', methods=['GET'])
 @login_required
 def get_tasks():
-    """Request saved transcripts from agent"""
+    """Request saved transcripts from agent and return cached data"""
     from app import socketio
+    from backend.websocket_handlers_v2 import agent_transcripts
+    
+    # Request fresh data from agent
     socketio.emit('get_transcripts', {})
-    # Agent will respond via WebSocket with agent_transcripts
-    return jsonify({'message': 'Requesting transcripts from agent'}), 200
+    
+    # Return cached transcripts immediately if available
+    all_transcripts = []
+    for agent_id, transcripts in agent_transcripts.items():
+        all_transcripts.extend(transcripts)
+    
+    return jsonify(all_transcripts), 200
 
 @api_routes_v2.route('/windows', methods=['GET'])
 @login_required
