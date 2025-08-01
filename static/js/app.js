@@ -80,49 +80,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 });
 
-document.getElementById('signup-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const username = document.getElementById('signup-username').value;
-    const email = document.getElementById('signup-email').value;
-    const password = document.getElementById('signup-password').value;
-    const confirm = document.getElementById('signup-confirm').value;
-    
-    if (password !== confirm) {
-        alert('Passwords do not match');
-        return;
-    }
-    
-    try {
-        const response = await fetch('/auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, password })
-        });
-        
-        if (response.ok) {
-            alert('Account created successfully! Please login.');
-            showScreen('login');
-        } else {
-            const data = await response.json();
-            alert(data.error || 'Registration failed');
-        }
-    } catch (error) {
-        console.error('Signup error:', error);
-        alert('Registration failed');
-    }
-});
+// Signup removed - single user system
 
-// Navigation
-document.getElementById('show-signup').addEventListener('click', (e) => {
-    e.preventDefault();
-    showScreen('signup');
-});
-
-document.getElementById('show-login').addEventListener('click', (e) => {
-    e.preventDefault();
-    showScreen('login');
-});
+// Navigation removed - single user system
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
     await fetch('/auth/logout', { method: 'POST' });

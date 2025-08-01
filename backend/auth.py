@@ -7,37 +7,7 @@ from backend.models import User, LocalAgent
 
 auth_routes = Blueprint('auth', __name__)
 
-@auth_routes.route('/register', methods=['POST'])
-def register():
-    """Register a new user"""
-    try:
-        data = request.json
-        
-        # Check if user already exists
-        if User.query.filter_by(username=data['username']).first():
-            return jsonify({'error': 'Username already exists'}), 400
-        
-        if User.query.filter_by(email=data['email']).first():
-            return jsonify({'error': 'Email already exists'}), 400
-        
-        # Create new user
-        user = User(
-            username=data['username'],
-            email=data['email']
-        )
-        user.set_password(data['password'])
-        
-        db.session.add(user)
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'User created successfully',
-            'user_id': user.id
-        }), 201
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': 'Registration failed'}), 500
+# Registration removed - single user system
 
 @auth_routes.route('/login', methods=['POST'])
 def login():
@@ -45,11 +15,8 @@ def login():
     try:
         data = request.json
         
-        # Find user by username or email
-        user = User.query.filter(
-            (User.username == data['username']) | 
-            (User.email == data['username'])
-        ).first()
+        # Find user by username
+        user = User.query.filter_by(username=data['username']).first()
         
         if not user or not user.check_password(data['password']):
             return jsonify({'error': 'Invalid credentials'}), 401
@@ -60,8 +27,7 @@ def login():
             'message': 'Login successful',
             'user': {
                 'id': user.id,
-                'username': user.username,
-                'email': user.email
+                'username': user.username
             }
         })
         
@@ -81,8 +47,7 @@ def get_current_user():
     """Get current user info"""
     return jsonify({
         'id': current_user.id,
-        'username': current_user.username,
-        'email': current_user.email
+        'username': current_user.username
     })
 
 @auth_routes.route('/agent-key', methods=['POST'])

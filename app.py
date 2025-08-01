@@ -63,11 +63,19 @@ app.register_blueprint(api_routes, url_prefix='/api')
 app.register_blueprint(auth_routes, url_prefix='/auth')
 register_websocket_handlers(socketio)
 
-# Create database tables
+# Create database tables and default user
 with app.app_context():
     from backend.models import User, LocalAgent, Task, ScheduledJob, PresetProfile, SystemStatus
     db.create_all()
     logger.info("Database tables created successfully")
+    
+    # Create default user if none exists
+    if not User.query.first():
+        default_user = User(username='matt')
+        default_user.set_password('aether2025')  # You can change this password
+        db.session.add(default_user)
+        db.session.commit()
+        logger.info("Default user 'matt' created with password 'aether2025'")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
