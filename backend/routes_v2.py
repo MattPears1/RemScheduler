@@ -6,108 +6,58 @@ import os
 import tempfile
 from werkzeug.utils import secure_filename
 from backend.db import db
-from backend.openai_helper import get_openai_client
 
 api_routes_v2 = Blueprint('api_v2', __name__)
 
 @api_routes_v2.route('/speech-to-task', methods=['POST'])
 @login_required
 def speech_to_task():
-    """Convert speech audio to text"""
+    """Convert speech audio to text using OpenAI Whisper"""
     try:
-        current_app.logger.info("Speech-to-task endpoint called")
-        
-        # Get OpenAI client
-        client = get_openai_client()
-        if not client:
-            current_app.logger.error("Failed to get OpenAI client")
-            return jsonify({'error': 'OpenAI API key not configured or client initialization failed'}), 500
-            
+        # Get audio from request
         if 'audio' not in request.files:
-            current_app.logger.error("No audio file in request")
             return jsonify({'error': 'No audio file provided'}), 400
         
         audio_file = request.files['audio']
-        current_app.logger.info(f"Received audio file: {audio_file.filename}, content_type: {audio_file.content_type}")
         
-        if audio_file.filename == '':
-            return jsonify({'error': 'No audio file selected'}), 400
+        # Get OpenAI API key
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'OpenAI API key not configured'}), 500
         
-        # Save temporary file with proper extension based on content type
-        extension = '.webm'
-        if audio_file.content_type:
-            if 'wav' in audio_file.content_type:
-                extension = '.wav'
-            elif 'mp3' in audio_file.content_type:
-                extension = '.mp3'
-            elif 'mpeg' in audio_file.content_type:
-                extension = '.mp3'
-                
-        with tempfile.NamedTemporaryFile(suffix=extension, delete=False) as temp_file:
+        # Save audio temporarily
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as temp_file:
             audio_file.save(temp_file.name)
             temp_path = temp_file.name
-            current_app.logger.info(f"Saved audio to temp file: {temp_path}, size: {os.path.getsize(temp_path)} bytes")
         
         try:
-            # Transcribe using OpenAI Whisper with improved error handling
-            current_app.logger.info("Starting transcription with Whisper API")
+            # Simple direct call to OpenAI
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
             
-            # Try transcription with fallback
-            from backend.openai_helper import transcribe_audio_with_fallback
-            transcribed_text = transcribe_audio_with_fallback(temp_path)
+            with open(temp_path, 'rb') as audio:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio
+                )
             
-            if not transcribed_text:
-                # If fallback failed, try one more time with basic approach
-                current_app.logger.warning("Fallback failed, trying basic approach")
-                try:
-                    with open(temp_path, 'rb') as audio:
-                        audio.name = f'recording{extension}'  # Ensure file has proper name
-                        transcript = client.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio,
-                            language="en"
-                        )
-                        transcribed_text = transcript.text
-                except Exception as final_error:
-                    current_app.logger.error(f"Final transcription attempt failed: {str(final_error)}")
-                    # Check if it's a connection/network issue
-                    error_msg = str(final_error).lower()
-                    if any(word in error_msg for word in ['connection', 'timeout', 'dns', 'network', 'lookup']):
-                        return jsonify({
-                            'error': 'Unable to connect to transcription service. This may be a network issue on Heroku. Please try again later.'
-                        }), 503
-                    elif 'quota' in error_msg:
-                        return jsonify({'error': 'API quota exceeded. Please try again later.'}), 503
-                    else:
-                        return jsonify({'error': f'Transcription failed: {str(final_error)}'}), 500
+            transcribed_text = transcript.text.strip()
             
-            if not transcribed_text:
-                return jsonify({'error': 'Transcription returned empty result'}), 500
-            
-            current_app.logger.info(f"Transcription successful: {transcribed_text[:50]}...")
-            
-            # Send to agent to save locally
-            from app import socketio
-            socketio.emit('save_transcript', {
-                'text': transcribed_text
-            })
-            
+            # Return the transcribed text
             return jsonify({
                 'transcribed_text': transcribed_text
-            }), 201
+            }), 200
             
         finally:
-            # Clean up temp file
+            # Clean up
             try:
                 os.unlink(temp_path)
             except:
                 pass
         
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Speech-to-task error: {str(e)}\nTraceback: {error_trace}")
-        return jsonify({'error': f'Failed to process audio: {str(e)}'}), 500
+        current_app.logger.error(f"Whisper error: {str(e)}")
+        return jsonify({'error': 'Failed to transcribe audio'}), 500
 
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required
@@ -280,14 +230,21 @@ def test_openai():
         except:
             openai_version = 'not installed'
         
-        # Try to get client
-        client = get_openai_client()
+        # Try to create client
+        api_key = os.environ.get('OPENAI_API_KEY')
+        client = None
+        if api_key:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+            except Exception as e:
+                pass
         
         return jsonify({
             'success': client is not None,
             'message': 'OpenAI client initialized' if client else 'Failed to initialize',
             'proxy_vars': proxy_info,
-            'api_key_present': bool(os.environ.get('OPENAI_API_KEY')),
+            'api_key_present': bool(api_key),
             'openai_version': openai_version
         })
     except Exception as e:
@@ -323,11 +280,18 @@ def health_openai():
         
         # Step 2: Check OpenAI client
         client_result = "Unknown"
-        client = get_openai_client()
-        if client:
-            client_result = "Initialized"
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if api_key:
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+                client_result = "Initialized"
+            except Exception as e:
+                client_result = f"Failed: {str(e)}"
+                client = None
         else:
-            client_result = "Failed to initialize"
+            client_result = "No API key"
+            client = None
         
         # Step 3: Try basic HTTPS request
         https_result = "Unknown"
@@ -418,11 +382,20 @@ def test_whisper():
         wav_file.name = 'test.wav'
         
         # Get OpenAI client
-        client = get_openai_client()
-        if not client:
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
             return jsonify({
                 'success': False,
-                'error': 'OpenAI client not initialized'
+                'error': 'OpenAI API key not configured'
+            }), 503
+        
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'error': f'Failed to initialize OpenAI client: {str(e)}'
             }), 503
         
         # Try transcription
