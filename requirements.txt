@@ -1,0 +1,30 @@
+# Web Framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-SocketIO==5.3.5
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+
+# Database
+psycopg2-binary==2.9.9
+SQLAlchemy==2.0.23
+
+# WebSockets
+python-socketio==5.10.0
+
+# Authentication & Security
+PyJWT==2.8.0
+werkzeug==3.0.1
+python-dotenv==1.0.0
+
+# Utilities
+requests==2.31.0
+APScheduler==3.10.4
+python-dateutil==2.8.2
+
+# Production Server
+gunicorn==21.2.0
+eventlet==0.33.3
+
+# Speech-to-Text (optional for server-side processing)
+openai==1.6.1

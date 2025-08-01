@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Project Aether - Command Center</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="manifest" href="/static/manifest.json">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="login-screen" class="screen active">
+        <div class="login-container">
+            <h1>Project Aether</h1>
+            <h2>Remote Command Center</h2>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Username or Email" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <button type="submit">Login</button>
+                <p class="signup-link">Don't have an account? <a href="#" id="show-signup">Sign up</a></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Signup Screen -->
+    <div id="signup-screen" class="screen">
+        <div class="login-container">
+            <h1>Create Account</h1>
+            <form id="signup-form">
+                <input type="text" id="signup-username" placeholder="Username" required>
+                <input type="email" id="signup-email" placeholder="Email" required>
+                <input type="password" id="signup-password" placeholder="Password" required>
+                <input type="password" id="signup-confirm" placeholder="Confirm Password" required>
+                <button type="submit">Sign Up</button>
+                <p class="signup-link">Already have an account? <a href="#" id="show-login">Login</a></p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard-screen" class="screen">
+        <header>
+            <h1>Command Center</h1>
+            <div class="header-info">
+                <span id="agent-status" class="status-indicator offline">Agent Offline</span>
+                <button id="logout-btn" class="icon-btn">⚙️</button>
+            </div>
+        </header>
+
+        <div class="dashboard-grid">
+            <div class="action-card" id="create-task-card">
+                <div class="card-icon">🎤</div>
+                <h3>Create New Task</h3>
+                <p>Dictate or type a new command</p>
+            </div>
+
+            <div class="action-card" id="mission-control-card">
+                <div class="card-icon">📊</div>
+                <h3>Mission Control</h3>
+                <p>View and manage scheduled tasks</p>
+            </div>
+
+            <div class="action-card" id="saved-messages-card">
+                <div class="card-icon">📚</div>
+                <h3>Saved Messages</h3>
+                <p>Browse your task catalogue</p>
+            </div>
+        </div>
+
+        <div class="system-status" id="rate-limit-banner" style="display: none;">
+            <p>⚠️ System rate-limited until <span id="reset-time"></span></p>
+        </div>
+    </div>
+
+    <!-- Create Task Screen -->
+    <div id="create-task-screen" class="screen">
+        <header>
+            <button class="back-btn" data-target="dashboard">← Back</button>
+            <h1>Create New Task</h1>
+        </header>
+
+        <div class="task-creation">
+            <div class="dictation-area">
+                <button id="record-btn" class="record-button">
+                    <span class="mic-icon">🎤</span>
+                    <span class="record-text">Start Recording</span>
+                </button>
+                <div class="recording-indicator" style="display: none;">
+                    <div class="pulse"></div>
+                    <span>Recording...</span>
+                </div>
+            </div>
+
+            <textarea id="task-text" placeholder="Or type your command here..." rows="6"></textarea>
+
+            <button id="proceed-schedule" class="primary-btn" disabled>Proceed to Schedule</button>
+        </div>
+    </div>
+
+    <!-- Schedule Screen -->
+    <div id="schedule-screen" class="screen">
+        <header>
+            <button class="back-btn" data-target="create-task">← Back</button>
+            <h1>Schedule Task</h1>
+        </header>
+
+        <div class="schedule-options">
+            <h3>How will this task be scheduled?</h3>
+            
+            <div class="schedule-type-cards">
+                <label class="type-card">
+                    <input type="radio" name="schedule-type" value="single" checked>
+                    <div class="card-content">
+                        <h4>Single Message</h4>
+                        <p>This message will repeat</p>
+                    </div>
+                </label>
+
+                <label class="type-card">
+                    <input type="radio" name="schedule-type" value="sequence">
+                    <div class="card-content">
+                        <h4>Message Sequence</h4>
+                        <p>Different messages in order</p>
+                    </div>
+                </label>
+            </div>
+
+            <div class="schedule-form">
+                <div class="form-group">
+                    <label>Target Window</label>
+                    <select id="target-window">
+                        <option value="">Select a window...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Start Time</label>
+                    <input type="datetime-local" id="start-time">
+                </div>
+
+                <div class="form-group">
+                    <label>Repetitions</label>
+                    <input type="number" id="repetitions" value="1" min="1">
+                </div>
+
+                <div class="form-group">
+                    <label>Interval</label>
+                    <input type="number" id="interval-value" value="60" min="1">
+                    <select id="interval-unit">
+                        <option value="seconds">Seconds</option>
+                        <option value="minutes" selected>Minutes</option>
+                        <option value="hours">Hours</option>
+                    </select>
+                </div>
+
+                <div id="sequence-builder" style="display: none;">
+                    <h4>Message Steps</h4>
+                    <div id="sequence-steps"></div>
+                </div>
+
+                <button id="submit-schedule" class="primary-btn">Schedule Task</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mission Control Screen -->
+    <div id="mission-control-screen" class="screen">
+        <header>
+            <button class="back-btn" data-target="dashboard">← Back</button>
+            <h1>Mission Control</h1>
+        </header>
+
+        <div class="mission-control">
+            <div class="window-tabs" id="window-tabs">
+                <!-- Window tabs will be dynamically added here -->
+            </div>
+
+            <div class="job-list" id="job-list">
+                <!-- Jobs will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Saved Messages Screen -->
+    <div id="saved-messages-screen" class="screen">
+        <header>
+            <button class="back-btn" data-target="dashboard">← Back</button>
+            <h1>Saved Messages</h1>
+        </header>
+
+        <div class="saved-messages">
+            <input type="search" id="message-search" placeholder="Search messages...">
+            <div id="message-list">
+                <!-- Messages will be dynamically added here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Job Modal -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <h3>Edit Message</h3>
+            <textarea id="edit-message-text" rows="6"></textarea>
+            <div class="modal-buttons">
+                <button class="cancel-btn">Cancel</button>
+                <button class="save-btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div id="reschedule-modal" class="modal">
+        <div class="modal-content">
+            <h3>Reschedule Job</h3>
+            <input type="datetime-local" id="reschedule-time">
+            <div class="modal-buttons">
+                <button class="cancel-btn">Cancel</button>
+                <button class="save-btn">Reschedule</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

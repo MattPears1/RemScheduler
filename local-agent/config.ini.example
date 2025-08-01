@@ -1,0 +1,13 @@
+[server]
+# URL of the Heroku app
+url = https://remscheduler-ca6ac87d3a1a.herokuapp.com
+
+# API key from the web app (generate in settings)
+api_key = YOUR_API_KEY_HERE
+
+[agent]
+# Agent name (displayed in web interface)
+name = Desktop Agent
+
+# Window discovery interval in seconds
+discovery_interval = 15

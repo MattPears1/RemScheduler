@@ -1,0 +1,673 @@
+// Global state
+const state = {
+    user: null,
+    socket: null,
+    currentScreen: 'login',
+    windows: [],
+    currentTask: null,
+    selectedJobGroup: null,
+    mediaRecorder: null,
+    audioChunks: []
+};
+
+// Socket.IO connection
+function connectSocket() {
+    state.socket = io();
+    
+    state.socket.on('connect', () => {
+        console.log('Connected to server');
+    });
+    
+    state.socket.on('windows_updated', (data) => {
+        state.windows = data.windows;
+        updateWindowsList();
+    });
+    
+    state.socket.on('rate_limit_active', (data) => {
+        showRateLimitBanner(data.reset_time);
+    });
+    
+    state.socket.on('job_status_updated', (data) => {
+        if (state.currentScreen === 'mission-control') {
+            loadMissionControl();
+        }
+    });
+    
+    state.socket.on('agent_disconnected', () => {
+        updateAgentStatus(false);
+    });
+}
+
+// Screen navigation
+function showScreen(screenName) {
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+    });
+    
+    const screen = document.getElementById(`${screenName}-screen`);
+    if (screen) {
+        screen.classList.add('active');
+        state.currentScreen = screenName;
+    }
+}
+
+// Authentication
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    
+    try {
+        const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            state.user = data.user;
+            connectSocket();
+            showScreen('dashboard');
+            updateAgentStatus();
+        } else {
+            alert('Invalid credentials');
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        alert('Login failed');
+    }
+});
+
+document.getElementById('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const username = document.getElementById('signup-username').value;
+    const email = document.getElementById('signup-email').value;
+    const password = document.getElementById('signup-password').value;
+    const confirm = document.getElementById('signup-confirm').value;
+    
+    if (password !== confirm) {
+        alert('Passwords do not match');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+        
+        if (response.ok) {
+            alert('Account created successfully! Please login.');
+            showScreen('login');
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Registration failed');
+        }
+    } catch (error) {
+        console.error('Signup error:', error);
+        alert('Registration failed');
+    }
+});
+
+// Navigation
+document.getElementById('show-signup').addEventListener('click', (e) => {
+    e.preventDefault();
+    showScreen('signup');
+});
+
+document.getElementById('show-login').addEventListener('click', (e) => {
+    e.preventDefault();
+    showScreen('login');
+});
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/auth/logout', { method: 'POST' });
+    state.user = null;
+    if (state.socket) {
+        state.socket.disconnect();
+    }
+    showScreen('login');
+});
+
+// Dashboard actions
+document.getElementById('create-task-card').addEventListener('click', () => {
+    showScreen('create-task');
+});
+
+document.getElementById('mission-control-card').addEventListener('click', () => {
+    showScreen('mission-control');
+    loadMissionControl();
+});
+
+document.getElementById('saved-messages-card').addEventListener('click', () => {
+    showScreen('saved-messages');
+    loadSavedMessages();
+});
+
+// Back buttons
+document.querySelectorAll('.back-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-target');
+        showScreen(target);
+    });
+});
+
+// Recording functionality
+const recordBtn = document.getElementById('record-btn');
+const recordText = recordBtn.querySelector('.record-text');
+const recordingIndicator = document.querySelector('.recording-indicator');
+
+recordBtn.addEventListener('click', async () => {
+    if (!state.mediaRecorder) {
+        // Start recording
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            state.mediaRecorder = new MediaRecorder(stream);
+            state.audioChunks = [];
+            
+            state.mediaRecorder.ondataavailable = (event) => {
+                state.audioChunks.push(event.data);
+            };
+            
+            state.mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
+                await processAudio(audioBlob);
+            };
+            
+            state.mediaRecorder.start();
+            recordBtn.classList.add('recording');
+            recordText.textContent = 'Stop Recording';
+            recordingIndicator.style.display = 'flex';
+            
+        } catch (error) {
+            console.error('Recording error:', error);
+            alert('Could not access microphone');
+        }
+    } else {
+        // Stop recording
+        state.mediaRecorder.stop();
+        state.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        state.mediaRecorder = null;
+        
+        recordBtn.classList.remove('recording');
+        recordText.textContent = 'Start Recording';
+        recordingIndicator.style.display = 'none';
+    }
+});
+
+async function processAudio(audioBlob) {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.webm');
+    
+    try {
+        const response = await fetch('/api/speech-to-task', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('task-text').value = data.transcribed_text;
+            document.getElementById('proceed-schedule').disabled = false;
+            state.currentTask = data;
+        } else {
+            alert('Failed to transcribe audio');
+        }
+    } catch (error) {
+        console.error('Transcription error:', error);
+        alert('Failed to process audio');
+    }
+}
+
+// Task text input
+document.getElementById('task-text').addEventListener('input', (e) => {
+    document.getElementById('proceed-schedule').disabled = !e.target.value.trim();
+});
+
+// Proceed to schedule
+document.getElementById('proceed-schedule').addEventListener('click', () => {
+    const taskText = document.getElementById('task-text').value.trim();
+    if (taskText) {
+        state.currentTask = { transcribed_text: taskText };
+        showScreen('schedule');
+        updateWindowsList();
+    }
+});
+
+// Schedule type selection
+document.querySelectorAll('input[name="schedule-type"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+        const sequenceBuilder = document.getElementById('sequence-builder');
+        if (e.target.value === 'sequence') {
+            sequenceBuilder.style.display = 'block';
+            updateSequenceSteps();
+        } else {
+            sequenceBuilder.style.display = 'none';
+        }
+    });
+});
+
+// Repetitions change
+document.getElementById('repetitions').addEventListener('change', updateSequenceSteps);
+
+function updateSequenceSteps() {
+    const repetitions = parseInt(document.getElementById('repetitions').value);
+    const stepsContainer = document.getElementById('sequence-steps');
+    stepsContainer.innerHTML = '';
+    
+    for (let i = 1; i <= repetitions; i++) {
+        const step = document.createElement('div');
+        step.className = 'sequence-step';
+        
+        const content = i === 1 ? state.currentTask.transcribed_text : '';
+        
+        step.innerHTML = `
+            <div class="step-number">Step ${i}:</div>
+            <div class="step-content">
+                <div class="step-preview">${content || '(Empty)'}</div>
+                <div class="step-actions">
+                    <button onclick="editStep(${i})">Type New</button>
+                    <button onclick="loadFromSaved(${i})">Load Saved</button>
+                </div>
+            </div>
+        `;
+        
+        stepsContainer.appendChild(step);
+    }
+}
+
+// Submit schedule
+document.getElementById('submit-schedule').addEventListener('click', async () => {
+    const scheduleType = document.querySelector('input[name="schedule-type"]:checked').value;
+    const targetWindow = document.getElementById('target-window').value;
+    const startTime = document.getElementById('start-time').value;
+    const repetitions = parseInt(document.getElementById('repetitions').value);
+    const intervalValue = parseInt(document.getElementById('interval-value').value);
+    const intervalUnit = document.getElementById('interval-unit').value;
+    
+    if (!targetWindow || !startTime) {
+        alert('Please fill in all required fields');
+        return;
+    }
+    
+    // Convert interval to seconds
+    let intervalSeconds = intervalValue;
+    if (intervalUnit === 'minutes') intervalSeconds *= 60;
+    if (intervalUnit === 'hours') intervalSeconds *= 3600;
+    
+    const scheduleData = {
+        target_hwnd: parseInt(targetWindow),
+        target_title: state.windows.find(w => w.hwnd == targetWindow)?.title || '',
+        start_time: new Date(startTime).toISOString(),
+        repetitions: repetitions,
+        interval_seconds: intervalSeconds,
+        use_different_messages: scheduleType === 'sequence'
+    };
+    
+    if (scheduleType === 'sequence') {
+        // Collect messages from sequence steps
+        const messages = [];
+        const steps = document.querySelectorAll('.sequence-step');
+        for (let i = 0; i < repetitions; i++) {
+            const preview = steps[i].querySelector('.step-preview').textContent;
+            if (!preview || preview === '(Empty)') {
+                alert(`Please fill in all sequence steps`);
+                return;
+            }
+            messages.push(preview);
+        }
+        scheduleData.messages = messages;
+    } else {
+        scheduleData.message = state.currentTask.transcribed_text;
+    }
+    
+    try {
+        const response = await fetch('/api/schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(scheduleData)
+        });
+        
+        if (response.ok) {
+            alert('Task scheduled successfully!');
+            showScreen('dashboard');
+            // Clear form
+            document.getElementById('task-text').value = '';
+            document.getElementById('proceed-schedule').disabled = true;
+        } else {
+            alert('Failed to schedule task');
+        }
+    } catch (error) {
+        console.error('Schedule error:', error);
+        alert('Failed to schedule task');
+    }
+});
+
+// Window management
+function updateWindowsList() {
+    const select = document.getElementById('target-window');
+    select.innerHTML = '<option value="">Select a window...</option>';
+    
+    state.windows.forEach(window => {
+        const option = document.createElement('option');
+        option.value = window.hwnd;
+        option.textContent = window.title || `Window ${window.hwnd}`;
+        select.appendChild(option);
+    });
+}
+
+// Agent status
+async function updateAgentStatus(online = null) {
+    const statusElement = document.getElementById('agent-status');
+    
+    if (online === null) {
+        // Check agent status
+        try {
+            const response = await fetch('/auth/agents');
+            if (response.ok) {
+                const agents = await response.json();
+                online = agents.some(agent => agent.is_online);
+            }
+        } catch (error) {
+            console.error('Agent status error:', error);
+        }
+    }
+    
+    if (online) {
+        statusElement.textContent = 'Agent Online';
+        statusElement.classList.remove('offline');
+        statusElement.classList.add('online');
+    } else {
+        statusElement.textContent = 'Agent Offline';
+        statusElement.classList.remove('online');
+        statusElement.classList.add('offline');
+    }
+}
+
+// Mission Control
+async function loadMissionControl() {
+    try {
+        const response = await fetch('/api/jobs');
+        if (response.ok) {
+            const jobGroups = await response.json();
+            displayJobGroups(jobGroups);
+        }
+    } catch (error) {
+        console.error('Load jobs error:', error);
+    }
+}
+
+function displayJobGroups(jobGroups) {
+    const jobList = document.getElementById('job-list');
+    jobList.innerHTML = '';
+    
+    if (jobGroups.length === 0) {
+        jobList.innerHTML = '<p style="text-align: center; padding: 2rem;">No scheduled jobs</p>';
+        return;
+    }
+    
+    jobGroups.forEach(group => {
+        const groupElement = document.createElement('div');
+        groupElement.className = 'job-group';
+        
+        const pendingCount = group.jobs.filter(j => j.status === 'PENDING').length;
+        const totalCount = group.jobs.length;
+        
+        groupElement.innerHTML = `
+            <div class="job-group-header" onclick="toggleJobGroup(this)">
+                <div>
+                    <strong>${group.target_title || 'Window ' + group.target_hwnd}</strong>
+                    <span style="margin-left: 1rem;">${pendingCount}/${totalCount} pending</span>
+                </div>
+                <span>▼</span>
+            </div>
+            <div class="job-details">
+                ${group.jobs.map(job => `
+                    <div class="job-item">
+                        <div class="job-info">
+                            <div>${job.message_text.substring(0, 50)}${job.message_text.length > 50 ? '...' : ''}</div>
+                            <small>${new Date(job.scheduled_time).toLocaleString()}</small>
+                        </div>
+                        <span class="job-status ${job.status.toLowerCase()}">${job.status}</span>
+                        ${job.status === 'PENDING' ? `
+                            <div class="job-actions">
+                                <button onclick="editJob(${job.id})">✏️</button>
+                                <button onclick="rescheduleJob(${job.id})">🕐</button>
+                                <button onclick="cancelJob(${job.id})">❌</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        
+        jobList.appendChild(groupElement);
+    });
+}
+
+function toggleJobGroup(header) {
+    header.parentElement.classList.toggle('expanded');
+    const arrow = header.querySelector('span:last-child');
+    arrow.textContent = header.parentElement.classList.contains('expanded') ? '▲' : '▼';
+}
+
+// Job actions
+async function editJob(jobId) {
+    const modal = document.getElementById('edit-modal');
+    const textarea = document.getElementById('edit-message-text');
+    
+    // Get current job text
+    try {
+        const response = await fetch('/api/jobs');
+        if (response.ok) {
+            const jobGroups = await response.json();
+            let job = null;
+            
+            for (const group of jobGroups) {
+                job = group.jobs.find(j => j.id === jobId);
+                if (job) break;
+            }
+            
+            if (job) {
+                textarea.value = job.message_text;
+                modal.classList.add('active');
+                
+                // Save handler
+                const saveHandler = async () => {
+                    try {
+                        const response = await fetch(`/api/jobs/${jobId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message_text: textarea.value })
+                        });
+                        
+                        if (response.ok) {
+                            modal.classList.remove('active');
+                            loadMissionControl();
+                        } else {
+                            alert('Failed to update job');
+                        }
+                    } catch (error) {
+                        console.error('Update error:', error);
+                        alert('Failed to update job');
+                    }
+                };
+                
+                modal.querySelector('.save-btn').onclick = saveHandler;
+                modal.querySelector('.cancel-btn').onclick = () => modal.classList.remove('active');
+            }
+        }
+    } catch (error) {
+        console.error('Load job error:', error);
+    }
+}
+
+async function rescheduleJob(jobId) {
+    const modal = document.getElementById('reschedule-modal');
+    const input = document.getElementById('reschedule-time');
+    
+    modal.classList.add('active');
+    
+    const saveHandler = async () => {
+        if (!input.value) {
+            alert('Please select a new time');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/jobs/${jobId}/reschedule`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_scheduled_time: new Date(input.value).toISOString() })
+            });
+            
+            if (response.ok) {
+                modal.classList.remove('active');
+                loadMissionControl();
+            } else {
+                alert('Failed to reschedule job');
+            }
+        } catch (error) {
+            console.error('Reschedule error:', error);
+            alert('Failed to reschedule job');
+        }
+    };
+    
+    modal.querySelector('.save-btn').onclick = saveHandler;
+    modal.querySelector('.cancel-btn').onclick = () => modal.classList.remove('active');
+}
+
+async function cancelJob(jobId) {
+    if (!confirm('Are you sure you want to cancel this job?')) return;
+    
+    try {
+        const response = await fetch(`/api/jobs/${jobId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            loadMissionControl();
+        } else {
+            alert('Failed to cancel job');
+        }
+    } catch (error) {
+        console.error('Cancel error:', error);
+        alert('Failed to cancel job');
+    }
+}
+
+// Saved messages
+async function loadSavedMessages() {
+    try {
+        const response = await fetch('/api/tasks');
+        if (response.ok) {
+            const tasks = await response.json();
+            displaySavedMessages(tasks);
+        }
+    } catch (error) {
+        console.error('Load messages error:', error);
+    }
+}
+
+function displaySavedMessages(tasks) {
+    const messageList = document.getElementById('message-list');
+    messageList.innerHTML = '';
+    
+    if (tasks.length === 0) {
+        messageList.innerHTML = '<p style="text-align: center; padding: 2rem;">No saved messages</p>';
+        return;
+    }
+    
+    tasks.forEach(task => {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'saved-message';
+        messageElement.style.cssText = `
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            background-color: var(--secondary-color);
+            border-radius: 6px;
+            cursor: pointer;
+        `;
+        
+        messageElement.innerHTML = `
+            <div>${task.text}</div>
+            <small style="opacity: 0.7;">${new Date(task.created_at).toLocaleString()}</small>
+        `;
+        
+        messageElement.addEventListener('click', () => {
+            if (window.currentStepToFill) {
+                fillSequenceStep(window.currentStepToFill, task.text);
+                window.currentStepToFill = null;
+            }
+        });
+        
+        messageList.appendChild(messageElement);
+    });
+}
+
+// Sequence builder helpers
+window.editStep = function(stepNumber) {
+    const step = document.querySelectorAll('.sequence-step')[stepNumber - 1];
+    const preview = step.querySelector('.step-preview');
+    
+    const text = prompt('Enter message for this step:', preview.textContent === '(Empty)' ? '' : preview.textContent);
+    if (text !== null && text.trim()) {
+        preview.textContent = text;
+    }
+};
+
+window.loadFromSaved = function(stepNumber) {
+    window.currentStepToFill = stepNumber;
+    showScreen('saved-messages');
+    loadSavedMessages();
+};
+
+function fillSequenceStep(stepNumber, text) {
+    const step = document.querySelectorAll('.sequence-step')[stepNumber - 1];
+    const preview = step.querySelector('.step-preview');
+    preview.textContent = text;
+    showScreen('schedule');
+}
+
+// Rate limit banner
+function showRateLimitBanner(resetTime) {
+    const banner = document.getElementById('rate-limit-banner');
+    const resetTimeElement = document.getElementById('reset-time');
+    
+    resetTimeElement.textContent = new Date(resetTime).toLocaleTimeString();
+    banner.style.display = 'block';
+    
+    setTimeout(() => {
+        banner.style.display = 'none';
+    }, 30000); // Hide after 30 seconds
+}
+
+// Message search
+document.getElementById('message-search').addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    const messages = document.querySelectorAll('.saved-message');
+    
+    messages.forEach(message => {
+        const text = message.textContent.toLowerCase();
+        message.style.display = text.includes(searchTerm) ? 'block' : 'none';
+    });
+});
+
+// Check authentication on load
+window.addEventListener('load', async () => {
+    try {
+        const response = await fetch('/auth/me');
+        if (response.ok) {
+            state.user = await response.json();
+            connectSocket();
+            showScreen('dashboard');
+            updateAgentStatus();
+        }
+    } catch (error) {
+        console.error('Auth check error:', error);
+    }
+});
