@@ -151,22 +151,33 @@ class WindowsLocalAgent:
             
             # Bring window to foreground
             win32gui.SetForegroundWindow(target_hwnd)
-            time.sleep(0.1)  # Small delay to ensure window is active
+            time.sleep(0.2)  # Wait for window activation
             
-            # Type the message
-            for char in message_text:
-                if char == '\n':
-                    # Send Enter key for newlines
-                    win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
-                    win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
-                else:
-                    # Type character
-                    win32api.keybd_event(ord(char.upper()), 0, 0, 0)
-                    win32api.keybd_event(ord(char.upper()), 0, win32con.KEYEVENTF_KEYUP, 0)
-                time.sleep(0.01)  # Small delay between keystrokes
+            # Clear any existing text (Ctrl+A)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+            win32api.keybd_event(ord('A'), 0, 0, 0)
+            win32api.keybd_event(ord('A'), 0, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+            time.sleep(0.05)
             
-            # Send final Enter to execute command
-            time.sleep(0.1)
+            # Send the message text using SendMessage for reliability
+            # First, let's use the clipboard method like AutoHotkey might
+            import win32clipboard
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(message_text)
+            win32clipboard.CloseClipboard()
+            
+            # Paste the text (Ctrl+V)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
+            win32api.keybd_event(ord('V'), 0, 0, 0)
+            win32api.keybd_event(ord('V'), 0, win32con.KEYEVENTF_KEYUP, 0)
+            win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
+            
+            # Wait for paste to complete (5 seconds as you requested for large messages)
+            time.sleep(5)
+            
+            # Send Enter key
             win32api.keybd_event(win32con.VK_RETURN, 0, 0, 0)
             win32api.keybd_event(win32con.VK_RETURN, 0, win32con.KEYEVENTF_KEYUP, 0)
             

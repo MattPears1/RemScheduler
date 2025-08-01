@@ -85,6 +85,10 @@ with app.app_context():
     db.session.commit()
     logger.info("Default user 'matt' created with password 'aether2025'")
 
+# Initialize the scheduler
+from backend.scheduler import init_scheduler
+scheduler = init_scheduler(app, socketio)
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     socketio.run(app, host='0.0.0.0', port=port, debug=True)

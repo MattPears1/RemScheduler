@@ -89,12 +89,12 @@ class JobScheduler:
                 logger.warning(f"Job {job.id} failed: Target window not found")
                 return
             
-            # Send job to agent
+            # Send job to agent - broadcast to all connected agents for now
             self.socketio.emit('execute_job', {
                 'job_id': job.id,
                 'target_hwnd': job.target_hwnd,
                 'message_text': job.message_text
-            }, room=f"agent_{target_agent}")
+            })
             
             logger.info(f"Sent job {job.id} to agent {target_agent}")
             
