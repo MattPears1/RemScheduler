@@ -42,10 +42,12 @@ export const useSocketStore = create<SocketState>((set, get) => ({
     });
 
     socket.on('jobs_updated', (data: { job_groups: JobGroup[] }) => {
+      console.log('Received jobs update:', data);
       set({ jobs: data.job_groups });
     });
 
     socket.on('transcripts_updated', (data: { transcripts: SavedMessage[] }) => {
+      console.log('Received transcripts update:', data);
       set({ savedMessages: data.transcripts });
     });
 

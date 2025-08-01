@@ -30,6 +30,12 @@ export const MissionControlScreen: React.FC = () => {
     initialData: jobs,
   });
   
+  // Debug logging
+  React.useEffect(() => {
+    console.log('Socket jobs:', jobs);
+    console.log('Query jobGroups:', jobGroups);
+  }, [jobs, jobGroups]);
+  
   const handleRefresh = async () => {
     haptic.success();
     await refetch();

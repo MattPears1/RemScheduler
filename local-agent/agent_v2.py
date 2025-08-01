@@ -59,6 +59,10 @@ class LocalAgentV2:
         self.connected = False
         self.windows = []
         
+        # Data sync interval
+        self.last_data_sync = 0
+        self.data_sync_interval = 5  # Sync data every 5 seconds
+        
         # Load and reschedule existing jobs
         self.reschedule_pending_jobs()
         
@@ -71,6 +75,15 @@ class LocalAgentV2:
             replace_existing=True
         )
         self.cleanup_old_messages()  # Run once on startup
+        
+        # Schedule heartbeat to keep connection alive
+        self.scheduler.add_job(
+            func=self.send_heartbeat,
+            trigger="interval",
+            seconds=30,  # Send heartbeat every 30 seconds
+            id="heartbeat",
+            replace_existing=True
+        )
     
     def init_database(self):
         """Initialize local SQLite database"""
@@ -660,6 +673,17 @@ class LocalAgentV2:
         except Exception as e:
             logger.error(f"Failed to cleanup old messages: {str(e)}")
     
+    def send_heartbeat(self):
+        """Send heartbeat to keep connection alive"""
+        if self.connected:
+            try:
+                self.sio.emit('agent_heartbeat', {
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                logger.debug("Heartbeat sent")
+            except Exception as e:
+                logger.error(f"Failed to send heartbeat: {str(e)}")
+    
     def connect_with_retry(self):
         """Connect to server with exponential backoff retry"""
         retry_delay = 1
@@ -689,6 +713,12 @@ class LocalAgentV2:
                 # Periodic window discovery
                 if time.time() - self.last_discovery > self.discovery_interval:
                     self.send_window_list()
+                
+                # Periodic data sync
+                if self.connected and time.time() - self.last_data_sync > self.data_sync_interval:
+                    self.send_job_status()
+                    self.send_transcripts()
+                    self.last_data_sync = time.time()
                 
                 # Sleep
                 time.sleep(1)

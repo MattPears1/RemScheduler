@@ -31,6 +31,12 @@ export const SavedMessagesScreen: React.FC = () => {
     // Use socket data if available, otherwise fetch from API
     initialData: savedMessages,
   });
+  
+  // Debug logging
+  React.useEffect(() => {
+    console.log('Socket savedMessages:', savedMessages);
+    console.log('Query messages:', messages);
+  }, [savedMessages, messages]);
 
   const deleteMutation = useMutation({
     mutationFn: apiService.deleteSavedMessage,

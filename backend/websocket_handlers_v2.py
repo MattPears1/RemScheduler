@@ -190,6 +190,15 @@ def register_websocket_handlers_v2(socketio):
         
         current_app.logger.error(f"Job {data['job_id']} failed: {data.get('reason')}")
     
+    @socketio.on('agent_heartbeat')
+    def handle_agent_heartbeat(data):
+        """Handle heartbeat from agent"""
+        if request.sid in connected_agents:
+            agent = connected_agents[request.sid]
+            agent.last_seen = datetime.utcnow()
+            db.session.commit()
+            current_app.logger.debug(f"Heartbeat from agent {agent.name}")
+    
     @socketio.on('disconnect')
     def handle_disconnect():
         """Handle agent disconnection"""
@@ -222,29 +231,38 @@ def register_websocket_handlers_v2(socketio):
     def handle_web_connect():
         """Handle web client connection"""
         current_app.logger.info(f"Web client connected: {request.sid}")
+        current_app.logger.info(f"Connected agents: {len(connected_agents)}")
+        current_app.logger.info(f"Agent windows: {list(agent_windows.keys())}")
+        current_app.logger.info(f"Agent jobs: {list(agent_jobs.keys())}")
         
         # Send agent connection status
         if connected_agents:
             for sid, agent in connected_agents.items():
+                current_app.logger.info(f"Emitting agent_connected for agent {agent.id}")
                 emit('agent_connected', {
                     'agent_id': agent.id,
                     'agent_name': agent.name
                 })
+        else:
+            current_app.logger.info("No connected agents to report")
         
         # Send current state to web client
         for agent_id, windows in agent_windows.items():
+            current_app.logger.info(f"Emitting windows for agent {agent_id}: {len(windows)} windows")
             emit('windows_updated', {
                 'agent_id': agent_id,
                 'windows': windows
             })
         
         for agent_id, job_groups in agent_jobs.items():
+            current_app.logger.info(f"Emitting jobs for agent {agent_id}: {len(job_groups)} groups")
             emit('jobs_updated', {
                 'agent_id': agent_id,
                 'job_groups': job_groups
             })
         
         for agent_id, transcripts in agent_transcripts.items():
+            current_app.logger.info(f"Emitting transcripts for agent {agent_id}: {len(transcripts)} items")
             emit('transcripts_updated', {
                 'agent_id': agent_id,
                 'transcripts': transcripts
