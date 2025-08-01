@@ -419,30 +419,55 @@ function toggleJobGroup(header) {
 async function editJob(jobId) {
     const modal = document.getElementById('edit-modal');
     const textarea = document.getElementById('edit-message-text');
+    const windowSelect = document.getElementById('edit-target-window');
     
-    // Get current job text
+    // Clear and populate window dropdown
+    windowSelect.innerHTML = '<option value="">Select a window...</option>';
+    state.windows.forEach(window => {
+        const option = document.createElement('option');
+        option.value = window.hwnd;
+        option.textContent = window.title || `Window ${window.hwnd}`;
+        windowSelect.appendChild(option);
+    });
+    
+    // Get current job details
     try {
         const response = await fetch('/api/jobs');
         if (response.ok) {
             const jobGroups = await response.json();
             let job = null;
+            let jobGroup = null;
             
             for (const group of jobGroups) {
                 job = group.jobs.find(j => j.id === jobId);
-                if (job) break;
+                if (job) {
+                    jobGroup = group;
+                    break;
+                }
             }
             
             if (job) {
                 textarea.value = job.message_text;
+                windowSelect.value = jobGroup.target_hwnd;
                 modal.classList.add('active');
                 
                 // Save handler
                 const saveHandler = async () => {
+                    const updateData = {
+                        message_text: textarea.value
+                    };
+                    
+                    // Only include window update if changed
+                    if (windowSelect.value && windowSelect.value != jobGroup.target_hwnd) {
+                        updateData.target_hwnd = parseInt(windowSelect.value);
+                        updateData.target_title = state.windows.find(w => w.hwnd == windowSelect.value)?.title || '';
+                    }
+                    
                     try {
                         const response = await fetch(`/api/jobs/${jobId}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message_text: textarea.value })
+                            body: JSON.stringify(updateData)
                         });
                         
                         if (response.ok) {

@@ -142,7 +142,7 @@ def schedule_job():
 @api_routes.route('/jobs/<int:job_id>', methods=['PUT'])
 @login_required
 def update_job(job_id):
-    """Edit a scheduled job's message"""
+    """Edit a scheduled job's message and target window"""
     try:
         job = ScheduledJob.query.filter_by(id=job_id, user_id=current_user.id).first()
         if not job:
@@ -152,7 +152,18 @@ def update_job(job_id):
             return jsonify({'error': 'Can only edit pending jobs'}), 400
         
         data = request.json
-        job.message_text = data['message_text']
+        
+        # Update message if provided
+        if 'message_text' in data:
+            job.message_text = data['message_text']
+        
+        # Update target window if provided
+        if 'target_hwnd' in data:
+            job.target_hwnd = data['target_hwnd']
+            # Also update the title snapshot if provided
+            if 'target_title' in data:
+                job.target_title_snapshot = data['target_title']
+        
         db.session.commit()
         
         return jsonify({'message': 'Job updated successfully'})
