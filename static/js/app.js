@@ -218,17 +218,22 @@ recordBtn.addEventListener('click', async () => {
 });
 
 async function processAudio(audioBlob) {
+    console.log('🎤 Processing audio blob, size:', audioBlob.size);
     const formData = new FormData();
     formData.append('audio', audioBlob, 'recording.webm');
     
+    console.log('📤 Sending to Whisper API...');
     try {
         const response = await fetch('/api/speech-to-task', {
             method: 'POST',
             body: formData
         });
         
+        console.log('📡 Response:', response.status, response.statusText);
+        
         if (response.ok) {
             const data = await response.json();
+            console.log('✅ Transcription successful:', data.transcribed_text);
             document.getElementById('task-text').value = data.transcribed_text;
             document.getElementById('proceed-schedule').disabled = false;
             state.currentTask = data;
@@ -236,17 +241,20 @@ async function processAudio(audioBlob) {
             // Try to get JSON error message
             try {
                 const errorData = await response.json();
+                console.error('❌ Server error:', errorData);
                 alert(errorData.error || 'Failed to transcribe audio');
             } catch {
                 // If not JSON, it's probably Heroku error page
+                console.error('❌ Non-JSON error response');
                 if (response.status === 503) {
-                    alert('Service temporarily unavailable. Please check Heroku logs.');
+                    alert('Heroku app crashed. The server cannot process audio right now.');
                 } else {
                     alert('Failed to transcribe audio');
                 }
             }
         }
     } catch (error) {
+        console.error('❌ Network error:', error);
         alert('Network error. Please check your connection.');
     }
 }

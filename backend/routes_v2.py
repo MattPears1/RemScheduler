@@ -10,7 +10,6 @@ from backend.db import db
 api_routes_v2 = Blueprint('api_v2', __name__)
 
 @api_routes_v2.route('/speech-to-task', methods=['GET', 'POST'])
-@login_required
 def speech_to_task():
     """Simple speech to text endpoint using OpenAI API"""
     try:
@@ -22,6 +21,11 @@ def speech_to_task():
                 'api_key_configured': bool(api_key),
                 'api_key_prefix': api_key[:10] + '...' if api_key else None
             }), 200
+        
+        # POST requires login
+        from flask_login import login_required, current_user
+        if not current_user.is_authenticated:
+            return jsonify({'error': 'Login required'}), 401
         
         # Check for audio file
         if 'audio' not in request.files:
