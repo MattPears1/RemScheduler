@@ -12,91 +12,92 @@ api_routes_v2 = Blueprint('api_v2', __name__)
 @api_routes_v2.route('/speech-to-task', methods=['GET', 'POST'])
 def speech_to_task():
     """Simple speech to text endpoint using OpenAI API"""
-    try:
-        # Handle GET request for testing
-        if request.method == 'GET':
-            api_key = os.environ.get('OPENAI_API_KEY')
-            return jsonify({
-                'status': 'ready',
-                'api_key_configured': bool(api_key),
-                'api_key_prefix': api_key[:10] + '...' if api_key else None
-            }), 200
-        
-        # POST requires login
-        from flask_login import login_required, current_user
-        if not current_user.is_authenticated:
-            return jsonify({'error': 'Login required'}), 401
-        
-        # Check for audio file
-        if 'audio' not in request.files:
-            return jsonify({'error': 'No audio file'}), 400
-        
-        # Check API key
+    # Handle GET request for testing
+    if request.method == 'GET':
         api_key = os.environ.get('OPENAI_API_KEY')
-        if not api_key:
-            return jsonify({'error': 'OpenAI API key not set in Heroku config'}), 400
-        
-        # Save audio to temp file
-        audio_file = request.files['audio']
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.webm')
-        
-        try:
-            # Save the file
-            with os.fdopen(temp_fd, 'wb') as f:
-                audio_file.save(f)
-            
-            # Import OpenAI
-            try:
-                from openai import OpenAI
-            except ImportError:
-                return jsonify({'error': 'OpenAI library not installed'}), 500
-            
-            # Create client
-            try:
-                client = OpenAI(api_key=api_key)
-            except Exception as e:
-                return jsonify({'error': f'Failed to create OpenAI client: {str(e)}'}), 500
-            
-            # Call transcription API
-            try:
-                with open(temp_path, 'rb') as audio_file:
-                    transcription = client.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file
-                    )
-                
-                # Return text
-                return jsonify({'transcribed_text': transcription.text}), 200
-                
-            except Exception as e:
-                # API call failed
-                error_msg = str(e)
-                if 'connection' in error_msg.lower():
-                    return jsonify({'error': 'Cannot connect to OpenAI API from Heroku'}), 503
-                elif 'api_key' in error_msg.lower():
-                    return jsonify({'error': 'Invalid OpenAI API key'}), 401
-                else:
-                    return jsonify({'error': f'OpenAI API error: {error_msg}'}), 500
-                
-        finally:
-            # Clean up
-            if os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except:
-                    pass
-                    
-    except Exception as e:
-        # Catch any other errors to prevent 503
-        import traceback
-        error_trace = traceback.format_exc()
-        current_app.logger.error(f"Speech-to-task error: {str(e)}")
-        current_app.logger.error(f"Traceback: {error_trace}")
         return jsonify({
-            'error': 'Internal server error',
-            'details': str(e),
-            'type': type(e).__name__
-        }), 500
+            'status': 'ready',
+            'api_key_configured': bool(api_key),
+            'api_key_prefix': api_key[:10] + '...' if api_key else None
+        }), 200
+    
+    # POST requires login
+    from flask_login import current_user
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Login required'}), 401
+    
+    # Log request
+    current_app.logger.info("Speech-to-task POST request received")
+    
+    # Check for audio file
+    if 'audio' not in request.files:
+        current_app.logger.error("No audio file in request")
+        return jsonify({'error': 'No audio file'}), 400
+    
+    # Check API key
+    api_key = os.environ.get('OPENAI_API_KEY')
+    if not api_key:
+        current_app.logger.error("No API key configured")
+        return jsonify({'error': 'OpenAI API key not configured'}), 400
+    
+    # Get audio file
+    audio_file = request.files['audio']
+    current_app.logger.info(f"Received audio file: {audio_file.filename}, size: {audio_file.content_length}")
+    
+    # Create temp file
+    import tempfile
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
+            audio_file.save(tmp.name)
+            temp_path = tmp.name
+            current_app.logger.info(f"Saved audio to: {temp_path}")
+    except Exception as e:
+        current_app.logger.error(f"Failed to save audio: {e}")
+        return jsonify({'error': 'Failed to save audio file'}), 500
+    
+    # Try to transcribe
+    try:
+        from openai import OpenAI
+        
+        # Create client
+        client = OpenAI(api_key=api_key)
+        current_app.logger.info("OpenAI client created")
+        
+        # Open file and transcribe
+        with open(temp_path, 'rb') as f:
+            current_app.logger.info("Calling Whisper API...")
+            result = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f
+            )
+        
+        current_app.logger.info(f"Transcription successful: {result.text[:50]}...")
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        return jsonify({'transcribed_text': result.text}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Transcription failed: {e}")
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+        
+        # Return error
+        error_msg = str(e)
+        if 'timeout' in error_msg.lower():
+            return jsonify({'error': 'Request timed out. Audio file may be too large.'}), 504
+        elif 'connection' in error_msg.lower():
+            return jsonify({'error': 'Cannot connect to OpenAI servers from Heroku'}), 503
+        else:
+            return jsonify({'error': f'Transcription failed: {error_msg}'}), 500
 
 @api_routes_v2.route('/test-api-key', methods=['GET'])
 def test_api_key():
