@@ -16,9 +16,18 @@ openai_client = None
 try:
     _api_key = os.environ.get('OPENAI_API_KEY')
     if _api_key:
-        # Create client with only the API key, no other parameters
-        # This avoids any proxy-related issues
+        # First, check if there are any proxy environment variables that might interfere
+        for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+            if os.environ.get(proxy_var):
+                print(f"[Module Init] Warning: {proxy_var} is set to {os.environ.get(proxy_var)}")
+        
+        # Import OpenAI and check version
+        import openai as openai_module
+        print(f"[Module Init] OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
+        
         from openai import OpenAI as OpenAIClient
+        
+        # Create client with only the API key
         openai_client = OpenAIClient(api_key=_api_key)
         print(f"[Module Init] OpenAI client initialized successfully")
     else:
@@ -40,8 +49,18 @@ def get_openai_client():
         current_app.logger.info(f"Attempting to initialize OpenAI client. API key present: {bool(api_key)}")
         current_app.logger.info(f"API key length: {len(api_key) if api_key else 0}")
         
+        # Check for proxy variables
+        for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+            value = os.environ.get(proxy_var)
+            if value:
+                current_app.logger.warning(f"Proxy variable {proxy_var} is set: {value}")
+        
         if api_key:
             try:
+                # Import and check version
+                import openai as openai_module
+                current_app.logger.info(f"OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
+                
                 # Initialize with just the API key, no other parameters
                 from openai import OpenAI as OpenAIClient
                 openai_client = OpenAIClient(api_key=api_key)
@@ -83,6 +102,10 @@ def speech_to_task():
                 return jsonify({'error': 'OpenAI API key not configured'}), 500
             
             try:
+                # Import and check version  
+                import openai as openai_module
+                current_app.logger.info(f"OpenAI module version: {getattr(openai_module, '__version__', 'unknown')}")
+                
                 from openai import OpenAI as OpenAIClient
                 client = OpenAIClient(api_key=api_key)
                 openai_client = client  # Save for next time
@@ -313,15 +336,28 @@ def get_tasks():
 def test_openai():
     """Test OpenAI client initialization"""
     try:
+        # Check for proxy environment variables
+        proxy_info = {}
+        for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+            value = os.environ.get(proxy_var)
+            if value:
+                proxy_info[proxy_var] = value
+        
+        # Try to get client
         client = get_openai_client()
+        
         return jsonify({
             'success': client is not None,
-            'message': 'OpenAI client initialized' if client else 'Failed to initialize'
+            'message': 'OpenAI client initialized' if client else 'Failed to initialize',
+            'proxy_vars': proxy_info,
+            'api_key_present': bool(os.environ.get('OPENAI_API_KEY'))
         })
     except Exception as e:
+        import traceback
         return jsonify({
             'success': False,
-            'error': str(e)
+            'error': str(e),
+            'traceback': traceback.format_exc()
         }), 500
 
 @api_routes_v2.route('/windows', methods=['GET'])
