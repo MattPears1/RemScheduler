@@ -61,6 +61,11 @@ def test_api_key():
     else:
         return jsonify({'status': 'not configured'}), 200
 
+@api_routes_v2.route('/ping', methods=['GET'])
+def ping():
+    """Simple ping endpoint"""
+    return jsonify({'status': 'ok', 'message': 'Speech endpoint is alive'}), 200
+
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required
 def schedule_job():
