@@ -23,6 +23,14 @@ if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Database connection pool settings to prevent exhaustion
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_size': 5,
+    'pool_recycle': 300,  # Recycle connections after 5 minutes
+    'pool_pre_ping': True,  # Verify connections before using
+    'max_overflow': 10
+}
+
 # Session configuration for better persistence
 app.config['SESSION_COOKIE_NAME'] = 'remscheduler_session'
 app.config['SESSION_COOKIE_HTTPONLY'] = True

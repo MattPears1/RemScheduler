@@ -9,6 +9,8 @@ connected_agents = {}
 agent_windows = {}
 agent_jobs = {}
 agent_transcripts = {}
+# Track last sync time for rate limiting (prevent database connection exhaustion)
+last_sync_time = {}
 
 def register_websocket_handlers_v2(socketio):
     """Register WebSocket event handlers for V2 architecture"""
@@ -109,8 +111,15 @@ def register_websocket_handlers_v2(socketio):
             # Store jobs for this agent
             agent_jobs[agent.id] = job_groups
             
-            # Sync jobs to database
-            sync_jobs_to_database(agent.user_id, job_groups)
+            # Rate limit database syncing to prevent connection exhaustion
+            current_time = datetime.utcnow()
+            last_sync = last_sync_time.get(agent.id)
+            
+            # Only sync to database every 5 seconds per agent
+            if not last_sync or (current_time - last_sync).total_seconds() > 5:
+                last_sync_time[agent.id] = current_time
+                # Sync jobs to database
+                sync_jobs_to_database(agent.user_id, job_groups)
             
             # Broadcast to all connected web clients
             socketio.emit('jobs_updated', {
@@ -330,34 +339,46 @@ def register_websocket_handlers_v2(socketio):
         
         except Exception as e:
             current_app.logger.error(f"Error loading jobs from database: {str(e)}")
+        finally:
+            # Ensure session is cleaned up
+            db.session.close()
     
     # Helper function to sync jobs to database
     def sync_jobs_to_database(user_id, job_groups):
         """Sync job groups from agent to backend database"""
         try:
-            # Get all job IDs from agent
+            # Skip if no job groups
+            if not job_groups:
+                return
+                
+            # Get all job IDs from agent in one pass
             agent_job_ids = set()
             for group in job_groups:
                 for job in group.get('jobs', []):
-                    # Use combination of group_id and message as unique identifier
                     agent_job_ids.add((job.get('job_group_id'), job.get('id')))
             
-            # Mark missing jobs as deleted/cancelled if they were pending
-            existing_jobs = ScheduledJob.query.filter_by(user_id=user_id).all()
-            for job in existing_jobs:
-                if (job.job_group_id, job.id) not in agent_job_ids and job.status == 'PENDING':
-                    job.status = 'CANCELLED'
-                    current_app.logger.info(f"Marked job {job.id} as CANCELLED (not in agent)")
+            # Bulk update missing jobs as cancelled
+            ScheduledJob.query.filter(
+                ScheduledJob.user_id == user_id,
+                ScheduledJob.status == 'PENDING',
+                ~db.tuple_(ScheduledJob.job_group_id, ScheduledJob.id).in_(agent_job_ids) if agent_job_ids else True
+            ).update({'status': 'CANCELLED'}, synchronize_session=False)
+            
+            # Get all existing jobs in one query
+            existing_jobs_map = {}
+            if agent_job_ids:
+                existing_jobs = ScheduledJob.query.filter(
+                    ScheduledJob.user_id == user_id,
+                    db.tuple_(ScheduledJob.job_group_id, ScheduledJob.id).in_(agent_job_ids)
+                ).all()
+                existing_jobs_map = {(job.job_group_id, job.id): job for job in existing_jobs}
             
             # Update or create jobs from agent
+            new_jobs = []
             for group in job_groups:
                 for job in group.get('jobs', []):
-                    # Find existing job or create new one
-                    existing_job = ScheduledJob.query.filter_by(
-                        user_id=user_id,
-                        job_group_id=job.get('job_group_id'),
-                        id=job.get('id')
-                    ).first()
+                    job_key = (job.get('job_group_id'), job.get('id'))
+                    existing_job = existing_jobs_map.get(job_key)
                     
                     if existing_job:
                         # Update existing job
@@ -366,7 +387,7 @@ def register_websocket_handlers_v2(socketio):
                         if job.get('executed_at'):
                             existing_job.executed_at = datetime.fromisoformat(job['executed_at'].replace('Z', '+00:00'))
                     else:
-                        # Create new job
+                        # Create new job (batch insert later)
                         new_job = ScheduledJob(
                             user_id=user_id,
                             job_group_id=job.get('job_group_id'),
@@ -380,7 +401,11 @@ def register_websocket_handlers_v2(socketio):
                         )
                         if job.get('executed_at'):
                             new_job.executed_at = datetime.fromisoformat(job['executed_at'].replace('Z', '+00:00'))
-                        db.session.add(new_job)
+                        new_jobs.append(new_job)
+            
+            # Batch insert new jobs
+            if new_jobs:
+                db.session.bulk_save_objects(new_jobs)
             
             db.session.commit()
             current_app.logger.info(f"Synced {len(job_groups)} job groups to database")
@@ -388,5 +413,8 @@ def register_websocket_handlers_v2(socketio):
         except Exception as e:
             current_app.logger.error(f"Error syncing jobs to database: {str(e)}")
             db.session.rollback()
+        finally:
+            # Ensure session is cleaned up
+            db.session.close()
     
     return socketio
