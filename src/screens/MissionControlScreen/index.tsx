@@ -33,13 +33,23 @@ export const MissionControlScreen: React.FC = () => {
   // Prefer socket data over query data
   const allJobGroups = jobs && jobs.length > 0 ? jobs : (queryResult.data || []);
   
+  // Helper function to determine if a job is expired
+  const isJobExpired = (job: any) => {
+    return job.status === 'PENDING' && new Date(job.scheduled_time) < new Date();
+  };
+
   // Filter and sort job groups
   const jobGroups = allJobGroups
     .map((group: any) => ({
       ...group,
-      // Filter to only show pending jobs
+      // Filter to only show pending jobs (including expired ones)
       jobs: group.jobs
         .filter((job: any) => job.status === 'PENDING')
+        .map((job: any) => ({
+          ...job,
+          // Mark expired jobs with a computed status
+          effectiveStatus: isJobExpired(job) ? 'EXPIRED' : job.status
+        }))
         // Sort by scheduled time (earliest first)
         .sort((a: any, b: any) => 
           new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime()
@@ -88,9 +98,14 @@ export const MissionControlScreen: React.FC = () => {
     mutationFn: apiService.cancelJob,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Also request fresh data from socket
+      if (socket) {
+        socket.emit('get_jobs');
+      }
       toast.success('Job cancelled');
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Cancel job error:', error);
       toast.error('Failed to cancel job');
     },
   });
@@ -99,9 +114,14 @@ export const MissionControlScreen: React.FC = () => {
     mutationFn: apiService.deleteJobHistory,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Also request fresh data from socket
+      if (socket) {
+        socket.emit('get_jobs');
+      }
       toast.success('Deleted from history');
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Delete job error:', error);  
       toast.error('Failed to delete');
     },
   });
@@ -110,10 +130,15 @@ export const MissionControlScreen: React.FC = () => {
     mutationFn: ({ jobId, data }: any) => apiService.updateJob(jobId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Also request fresh data from socket
+      if (socket) {
+        socket.emit('get_jobs');
+      }
       toast.success('Job updated');
       setEditingJob(null);
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Update job error:', error);
       toast.error('Failed to update job');
     },
   });
@@ -122,10 +147,15 @@ export const MissionControlScreen: React.FC = () => {
     mutationFn: ({ jobId, newTime }: any) => apiService.rescheduleJob(jobId, newTime),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      // Also request fresh data from socket
+      if (socket) {
+        socket.emit('get_jobs');
+      }
       toast.success('Job rescheduled');
       setRescheduleJob(null);
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Reschedule job error:', error);
       toast.error('Failed to reschedule job');
     },
   });
@@ -212,17 +242,17 @@ export const MissionControlScreen: React.FC = () => {
                           onEdit={() => setEditingJob(job)}
                           onReschedule={() => setRescheduleJob(job)}
                           onCancel={() => {
-                            if (job.status === 'PENDING') {
+                            if (job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') {
                               cancelMutation.mutate(job.id);
                             } else {
-                              toast.error('Can only cancel pending jobs');
+                              toast.error('Can only cancel pending or expired jobs');
                             }
                           }}
                           onDelete={() => {
                             if (job.status === 'SENT') {
                               deleteMutation.mutate(job.id);
-                            } else if (job.status === 'PENDING') {
-                              // For pending jobs, use cancel instead
+                            } else if (job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') {
+                              // For pending/expired jobs, use cancel instead
                               cancelMutation.mutate(job.id);
                             }
                           }}

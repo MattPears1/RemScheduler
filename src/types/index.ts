@@ -10,7 +10,7 @@ export interface ScheduledJob {
   target_hwnd: number;
   target_title: string;
   scheduled_time: string;
-  status: 'PENDING' | 'SENT' | 'FAILED';
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'EXPIRED';
   error_message?: string;
   executed_at?: string;
 }

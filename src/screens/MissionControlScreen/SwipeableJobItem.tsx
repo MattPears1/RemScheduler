@@ -6,7 +6,7 @@ import { useGesture } from 'react-use-gesture';
 import type { ScheduledJob } from '@types';
 
 interface SwipeableJobItemProps {
-  job: ScheduledJob;
+  job: ScheduledJob & { effectiveStatus?: string };
   onEdit: () => void;
   onReschedule: () => void;
   onCancel: () => void;
@@ -39,8 +39,8 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
           // Swipe right to delete sent messages
           controls.start({ x: 300, opacity: 0 });
           setTimeout(onDelete, 300);
-        } else if (dx < 0 && job.status === 'PENDING') {
-          // Swipe left to cancel pending jobs
+        } else if (dx < 0 && (job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED')) {
+          // Swipe left to cancel pending/expired jobs
           controls.start({ x: -300, opacity: 0 });
           setTimeout(onCancel, 300);
         }
@@ -56,6 +56,7 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'PENDING': return 'text-yellow-500 bg-yellow-500/10';
+      case 'EXPIRED': return 'text-orange-500 bg-orange-500/10';
       case 'SENT': return 'text-green-500 bg-green-500/10';
       case 'FAILED': return 'text-red-500 bg-red-500/10';
       default: return '';
@@ -65,6 +66,7 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'PENDING': return <HiClock className="w-4 h-4" />;
+      case 'EXPIRED': return <HiX className="w-4 h-4" />;
       case 'SENT': return <HiCheck className="w-4 h-4" />;
       case 'FAILED': return <HiX className="w-4 h-4" />;
       default: return null;
@@ -79,7 +81,7 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
       {/* Background Actions */}
       <div className="absolute inset-0 flex items-center justify-between px-6">
         <span className="text-white font-medium">
-          {job.status === 'PENDING' ? 'Cancel' : ''}
+          {(job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') ? 'Cancel' : ''}
         </span>
         <span className="text-white font-medium">
           {job.status === 'SENT' ? 'Delete' : ''}
@@ -102,9 +104,9 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
             </p>
           </div>
           
-          <div className={`px-2 py-1 rounded-full flex items-center space-x-1 ${getStatusColor(job.status)}`}>
-            {getStatusIcon(job.status)}
-            <span className="text-xs font-medium">{job.status}</span>
+          <div className={`px-2 py-1 rounded-full flex items-center space-x-1 ${getStatusColor(job.effectiveStatus || job.status)}`}>
+            {getStatusIcon(job.effectiveStatus || job.status)}
+            <span className="text-xs font-medium">{job.effectiveStatus || job.status}</span>
           </div>
         </div>
 
@@ -115,7 +117,7 @@ export const SwipeableJobItem: React.FC<SwipeableJobItemProps> = ({
             animate={{ opacity: 1, height: 'auto' }}
             className="mt-3 pt-3 border-t border-white/10 flex space-x-2"
           >
-            {job.status === 'PENDING' && (
+            {(job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') && (
               <>
                 <button
                   onClick={(e) => {

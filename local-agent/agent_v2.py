@@ -76,6 +76,16 @@ class LocalAgentV2:
         )
         self.cleanup_old_messages()  # Run once on startup
         
+        # Schedule expired job checking
+        self.scheduler.add_job(
+            func=self.check_expired_jobs,
+            trigger="interval",
+            seconds=60,  # Check every minute
+            id="check_expired_jobs",
+            replace_existing=True
+        )
+        self.check_expired_jobs()  # Run once on startup
+        
         # Schedule heartbeat to keep connection alive
         self.scheduler.add_job(
             func=self.send_heartbeat,
@@ -823,6 +833,50 @@ class LocalAgentV2:
             
         except Exception as e:
             logger.error(f"Failed to cleanup old messages: {str(e)}")
+    
+    def check_expired_jobs(self):
+        """Check for pending jobs that are past their scheduled time and mark them as expired"""
+        try:
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA busy_timeout=5000')
+            cursor = conn.cursor()
+            
+            # Get current time in UTC
+            now_utc = datetime.now(timezone.utc)
+            
+            # Find pending jobs that are past their scheduled time
+            cursor.execute('''
+                SELECT id, scheduled_time 
+                FROM scheduled_jobs 
+                WHERE status = 'PENDING' AND scheduled_time < ?
+            ''', (now_utc.isoformat(),))
+            
+            expired_jobs = cursor.fetchall()
+            
+            if expired_jobs:
+                # Update expired jobs status
+                for job_id, scheduled_time in expired_jobs:
+                    cursor.execute(
+                        'UPDATE scheduled_jobs SET status = ? WHERE id = ?',
+                        ('EXPIRED', job_id)
+                    )
+                    # Remove from scheduler if still there
+                    try:
+                        self.scheduler.remove_job(f"job_{job_id}")
+                    except:
+                        pass  # Job might have already been removed
+                
+                conn.commit()
+                logger.info(f"Marked {len(expired_jobs)} jobs as expired")
+                
+                # Send updated job status to server
+                self.send_job_status()
+            
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Failed to check expired jobs: {str(e)}")
     
     def send_heartbeat(self):
         """Send heartbeat to keep connection alive"""
