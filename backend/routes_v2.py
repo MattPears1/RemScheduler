@@ -625,22 +625,6 @@ def get_windows():
     # The frontend should rely on WebSocket updates instead
     return jsonify([])
 
-@api_routes_v2.route('/jobs/purge-all', methods=['DELETE'])
-@login_required
-def purge_all_jobs():
-    """Purge all jobs from the system"""
-    try:
-        from app import socketio
-        
-        # Send purge request to agent
-        socketio.emit('purge_all_jobs', {})
-        
-        return jsonify({'message': 'Purge all jobs request sent to agent'}), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"Purge all jobs error: {str(e)}")
-        return jsonify({'error': 'Failed to purge all jobs'}), 500
-
 @api_routes_v2.route('/agent/status', methods=['GET'])
 @login_required
 def get_agent_status():
