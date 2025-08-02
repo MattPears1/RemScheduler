@@ -150,8 +150,8 @@ export const MissionControlScreen: React.FC = () => {
     },
   });
 
-  const deleteAllMutation = useMutation({
-    mutationFn: (status: 'PENDING' | 'EXPIRED' | 'SENT') => apiService.deleteAllByStatus(status),
+  const deleteAllMutation = useMutation<void, Error, 'PENDING' | 'EXPIRED' | 'SENT'>({
+    mutationFn: apiService.deleteAllByStatus,
     onSuccess: (_, status) => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       if (socket) {
@@ -159,7 +159,7 @@ export const MissionControlScreen: React.FC = () => {
       }
       toast.success(`All ${status.toLowerCase()} jobs deleted`);
     },
-    onError: (error: any, status: string) => {
+    onError: (error, status) => {
       console.error('Delete all error:', error);
       toast.error(`Failed to delete all ${status.toLowerCase()} jobs`);
     },
@@ -251,7 +251,7 @@ export const MissionControlScreen: React.FC = () => {
         >
           {currentJobGroups.length > 0 && (
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
               onClick={() => {
                 if (confirm(`Are you sure you want to delete all ${viewMode} jobs?`)) {
@@ -266,7 +266,7 @@ export const MissionControlScreen: React.FC = () => {
             </Button>
           )}
           <Button
-            variant="destructive"
+            variant="danger"
             size="sm"
             onClick={() => {
               if (confirm('Are you sure you want to purge ALL jobs from the system? This cannot be undone.')) {
