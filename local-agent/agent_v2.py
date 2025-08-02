@@ -95,7 +95,10 @@ class LocalAgentV2:
         # Check for database corruption and recover if needed
         if not self.check_and_recover_database():
             logger.error("Failed to initialize database after recovery attempts")
-            sys.exit(1)
+            logger.error("\n" + "="*60)
+            logger.error("TO FIX: Run RESET_DATABASE.bat to start fresh")
+            logger.error("="*60 + "\n")
+            raise RuntimeError("Database initialization failed")
         
         conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         cursor = conn.cursor()
@@ -137,11 +140,12 @@ class LocalAgentV2:
         if os.path.exists(self.db_path):
             try:
                 # Try to connect and check integrity
-                conn = sqlite3.connect(self.db_path)
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
                 cursor = conn.cursor()
                 
-                # Run integrity check
-                result = cursor.execute('PRAGMA integrity_check').fetchone()
+                # Run quick integrity check
+                cursor.execute('PRAGMA quick_check')
+                result = cursor.fetchone()
                 
                 if result[0] != 'ok':
                     logger.warning(f"Database integrity check failed: {result[0]}")
@@ -153,6 +157,9 @@ class LocalAgentV2:
                 
             except sqlite3.DatabaseError as e:
                 logger.error(f"Database error detected: {str(e)}")
+                if "database disk image is malformed" in str(e) or "database is locked" in str(e):
+                    logger.error("Database is corrupted or locked by another process")
+                    logger.error("Attempting automatic recovery...")
                 return self.recover_corrupted_database()
             except Exception as e:
                 logger.error(f"Unexpected error checking database: {str(e)}")
