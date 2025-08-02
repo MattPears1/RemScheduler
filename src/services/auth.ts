@@ -7,6 +7,7 @@ class AuthService {
     const response = await fetch(`${this.baseUrl}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ username, password }),
     });
 
@@ -20,11 +21,14 @@ class AuthService {
   async logout(): Promise<void> {
     await fetch(`${this.baseUrl}/logout`, {
       method: 'POST',
+      credentials: 'include',
     });
   }
 
   async checkAuth(): Promise<User> {
-    const response = await fetch(`${this.baseUrl}/me`);
+    const response = await fetch(`${this.baseUrl}/me`, {
+      credentials: 'include',
+    });
     
     if (!response.ok) {
       throw new Error('Not authenticated');
@@ -34,7 +38,9 @@ class AuthService {
   }
 
   async getAgents(): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/agents`);
+    const response = await fetch(`${this.baseUrl}/agents`, {
+      credentials: 'include',
+    });
     return response.json();
   }
 }

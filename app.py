@@ -23,6 +23,16 @@ if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
     app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Session configuration for better persistence
+app.config['SESSION_COOKIE_NAME'] = 'remscheduler_session'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('ENV') == 'production'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 30  # 30 days
+app.config['REMEMBER_COOKIE_DURATION'] = 86400 * 30  # 30 days
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SECURE'] = os.environ.get('ENV') == 'production'
+
 # Initialize extensions
 from backend.db import db
 from flask_migrate import Migrate
@@ -45,18 +55,7 @@ system_state = {
     'reset_time': None
 }
 
-@app.route('/')
-def index():
-    """Serve the main application page"""
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/<path:path>')
-def serve_static(path):
-    """Serve static files"""
-    if os.path.exists(os.path.join(app.static_folder, path)):
-        return send_from_directory(app.static_folder, path)
-    else:
-        return send_from_directory(app.static_folder, 'index.html')
+# Remove these routes for now - they'll be re-added after blueprints
 
 @app.route('/health')
 def health_check():
@@ -76,6 +75,23 @@ from backend.websocket_handlers_v2 import register_websocket_handlers_v2
 app.register_blueprint(api_routes_v2, url_prefix='/api')
 app.register_blueprint(auth_routes, url_prefix='/auth')
 register_websocket_handlers_v2(socketio)
+
+# Catch-all route for React Router - MUST be after all other routes
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    """Catch all routes and serve React app"""
+    # If it's a file request (has extension), try to serve it
+    if '.' in path:
+        # Check if file exists in static folder
+        if os.path.exists(os.path.join(app.static_folder, path)):
+            return send_from_directory(app.static_folder, path)
+        # File not found
+        return jsonify({'error': 'Not found'}), 404
+    
+    # For all other routes, serve the React app
+    # This allows React Router to handle client-side routing
+    return send_from_directory(app.static_folder, 'index.html')
 
 # Create database tables and default user
 with app.app_context():

@@ -29,6 +29,7 @@ class ApiService {
     try {
       const response = await fetch(`${this.baseUrl}/jobs`, {
         credentials: 'include',
+        headers: this.getHeaders(),
       });
       if (!response.ok) {
         console.error('Failed to fetch jobs:', response.status, response.statusText);
@@ -70,6 +71,8 @@ class ApiService {
   async deleteJobHistory(jobId: number): Promise<void> {
     const response = await fetch(`${this.baseUrl}/jobs/${jobId}/delete-history`, {
       method: 'DELETE',
+      credentials: 'include',
+      headers: this.getHeaders(),
     });
 
     if (!response.ok) {
@@ -80,7 +83,8 @@ class ApiService {
   async rescheduleJob(jobId: number, newTime: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/jobs/${jobId}/reschedule`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.getHeaders(),
+      credentials: 'include',
       body: JSON.stringify({ new_scheduled_time: newTime }),
     });
 
@@ -110,6 +114,8 @@ class ApiService {
   async deleteSavedMessage(id: number): Promise<void> {
     const response = await fetch(`${this.baseUrl}/tasks/${id}`, {
       method: 'DELETE',
+      credentials: 'include',
+      headers: this.getHeaders(),
     });
 
     if (!response.ok) {
@@ -136,6 +142,7 @@ class ApiService {
 
     const response = await fetch(`${this.baseUrl}/speech-to-task`, {
       method: 'POST',
+      credentials: 'include',
       body: formData,
     });
 
