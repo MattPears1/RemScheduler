@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import uuid
 import os
 import tempfile
+import time
 from werkzeug.utils import secure_filename
 from backend.db import db
 
@@ -66,73 +67,115 @@ def speech_to_task():
         current_app.logger.error(f"Failed to save audio: {e}")
         return jsonify({'error': 'Failed to save audio file'}), 500
     
-    # Try to transcribe with short timeout
-    try:
-        from openai import OpenAI
-        import httpx
-        
-        # Create client with shorter timeout for Heroku
-        http_client = httpx.Client(
-            timeout=httpx.Timeout(25.0, connect=5.0),  # Total 25s (under Heroku's 30s)
-            follow_redirects=True
-        )
-        
-        client = OpenAI(
-            api_key=api_key,
-            http_client=http_client,
-            max_retries=0  # No retries to avoid timeout
-        )
-        current_app.logger.info("OpenAI client created with 25s timeout")
-        
-        # Open file and transcribe
-        with open(temp_path, 'rb') as f:
-            current_app.logger.info("Calling Whisper API...")
-            result = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=f,
-                language="en"  # Force English for faster processing
+    # Try to transcribe with retries and better error handling
+    transcription_text = None
+    last_error = None
+    
+    # Try up to 3 times with different configurations
+    retry_configs = [
+        {'timeout': 20.0, 'connect': 3.0},  # Faster timeout first
+        {'timeout': 25.0, 'connect': 5.0},  # Standard timeout
+        {'timeout': 15.0, 'connect': 2.0},  # Very fast timeout as last resort
+    ]
+    
+    for attempt, config in enumerate(retry_configs):
+        try:
+            from openai import OpenAI
+            import httpx
+            import time
+            
+            current_app.logger.info(f"Transcription attempt {attempt + 1}/3 with timeout {config['timeout']}s")
+            
+            # Add small delay between retries
+            if attempt > 0:
+                time.sleep(1)
+            
+            # Create client with current timeout config
+            http_client = httpx.Client(
+                timeout=httpx.Timeout(config['timeout'], connect=config['connect']),
+                follow_redirects=True,
+                limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
             )
+            
+            client = OpenAI(
+                api_key=api_key,
+                http_client=http_client,
+                max_retries=0  # No internal retries
+            )
+            
+            # Open file and transcribe
+            with open(temp_path, 'rb') as f:
+                current_app.logger.info(f"Calling Whisper API (attempt {attempt + 1})...")
+                start_time = time.time()
+                
+                result = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language="en",  # Force English for faster processing
+                    response_format="text"  # Get text directly, simpler parsing
+                )
+                
+                elapsed = time.time() - start_time
+                current_app.logger.info(f"Transcription successful in {elapsed:.2f}s: {result[:50]}...")
+                
+                transcription_text = result
+                
+                # Close client immediately
+                try:
+                    http_client.close()
+                except:
+                    pass
+                    
+                break  # Success, exit retry loop
+                
+        except Exception as e:
+            last_error = e
+            error_msg = str(e)
+            current_app.logger.error(f"Attempt {attempt + 1} failed: {type(e).__name__}: {error_msg}")
+            
+            # Close client on error
+            try:
+                if 'http_client' in locals():
+                    http_client.close()
+            except:
+                pass
+            
+            # Don't retry on certain errors
+            if 'Invalid API key' in error_msg or 'Incorrect API key' in error_msg:
+                break
+    
+    # Clean up temp file
+    try:
+        os.unlink(temp_path)
+    except:
+        pass
+    
+    # Return result or error
+    if transcription_text:
+        return jsonify({'transcribed_text': transcription_text}), 200
+    else:
+        # Detailed error response
+        error_msg = str(last_error) if last_error else "Unknown error"
+        error_type = type(last_error).__name__ if last_error else "Unknown"
         
-        current_app.logger.info(f"Transcription successful: {result.text[:50]}...")
-        
-        # Clean up
-        try:
-            os.unlink(temp_path)
-            http_client.close()
-        except:
-            pass
-        
-        return jsonify({'transcribed_text': result.text}), 200
-        
-    except Exception as e:
-        import traceback
-        error_details = traceback.format_exc()
-        current_app.logger.error(f"Transcription failed: {e}")
-        current_app.logger.error(f"Full error trace: {error_details}")
-        
-        # Clean up
-        try:
-            os.unlink(temp_path)
-            if 'http_client' in locals():
-                http_client.close()
-        except:
-            pass
-        
-        # Return error with actual details
-        error_msg = str(e)
-        error_type = type(e).__name__
+        current_app.logger.error(f"All transcription attempts failed. Last error: {error_type}: {error_msg}")
         
         if 'timeout' in error_msg.lower() or error_type == 'TimeoutError':
             return jsonify({
-                'error': 'Request timed out after 25 seconds. The audio may be too long to process.'
+                'error': 'Request timed out. Please try recording a shorter message (under 30 seconds).'
             }), 504
-        elif 'connection' in error_msg.lower() or 'ConnectError' in error_type:
-            # Connection errors on Heroku are often DNS/network related, not timeout
+        elif 'Invalid API key' in error_msg or 'Incorrect API key' in error_msg:
             return jsonify({
-                'error': f'Connection failed to OpenAI servers. Error: {error_msg}. This appears to be a Heroku networking issue.'
+                'error': 'Invalid OpenAI API key. Please check your configuration.'
+            }), 401
+        elif 'connection' in error_msg.lower() or 'ConnectError' in error_type:
+            return jsonify({
+                'error': 'Failed to connect to OpenAI. This may be a temporary network issue. Please try again.'
             }), 503
         else:
-            return jsonify({'error': f'Transcription failed: {error_type}: {error_msg}'}), 500
+            return jsonify({
+                'error': f'Transcription failed after 3 attempts: {error_msg}'
+            }), 500
 
 @api_routes_v2.route('/test-api-key', methods=['GET'])
 def test_api_key():
@@ -149,6 +192,65 @@ def test_api_key():
 def ping():
     """Simple ping endpoint"""
     return jsonify({'status': 'ok', 'message': 'Speech endpoint is alive'}), 200
+
+@api_routes_v2.route('/speech-to-task-base64', methods=['POST'])
+@login_required
+def speech_to_task_base64():
+    """Alternative speech endpoint using base64 encoding"""
+    try:
+        data = request.json
+        if not data or 'audio' not in data:
+            return jsonify({'error': 'No audio data provided'}), 400
+        
+        # Get base64 audio data
+        import base64
+        audio_base64 = data['audio']
+        
+        # Decode base64 to bytes
+        try:
+            # Remove data URL prefix if present
+            if ',' in audio_base64:
+                audio_base64 = audio_base64.split(',')[1]
+            audio_bytes = base64.b64decode(audio_base64)
+        except Exception as e:
+            return jsonify({'error': f'Invalid base64 audio data: {str(e)}'}), 400
+        
+        # Check size
+        if len(audio_bytes) > 1024 * 1024:  # 1MB limit
+            return jsonify({'error': 'Audio file too large (max 1MB)'}), 413
+        
+        # Save to temp file
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.webm', delete=False) as tmp:
+            tmp.write(audio_bytes)
+            temp_path = tmp.name
+        
+        # Use simpler OpenAI client
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            os.unlink(temp_path)
+            return jsonify({'error': 'OpenAI API key not configured'}), 400
+        
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            
+            with open(temp_path, 'rb') as f:
+                result = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language="en"
+                )
+            
+            os.unlink(temp_path)
+            return jsonify({'transcribed_text': result.text}), 200
+            
+        except Exception as e:
+            os.unlink(temp_path)
+            return jsonify({'error': f'Transcription failed: {str(e)}'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': f'Request processing failed: {str(e)}'}), 500
 
 @api_routes_v2.route('/test-openai-connection', methods=['GET'])
 def test_openai_connection():

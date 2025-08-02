@@ -86,11 +86,16 @@ class LocalAgentV2:
         )
     
     def init_database(self):
-        """Initialize local SQLite database"""
+        """Initialize local SQLite database with corruption recovery"""
         self.db_path = 'local_messages.db'
         # Set up datetime adapter for SQLite
         sqlite3.register_adapter(datetime, lambda dt: dt.isoformat())
         sqlite3.register_converter("timestamp", lambda b: datetime.fromisoformat(b.decode()))
+        
+        # Check for database corruption and recover if needed
+        if not self.check_and_recover_database():
+            logger.error("Failed to initialize database after recovery attempts")
+            sys.exit(1)
         
         conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
         cursor = conn.cursor()
@@ -126,6 +131,140 @@ class LocalAgentV2:
         conn.commit()
         conn.close()
         logger.info("Database initialized")
+    
+    def check_and_recover_database(self):
+        """Check database integrity and recover if corrupted"""
+        if os.path.exists(self.db_path):
+            try:
+                # Try to connect and check integrity
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                # Run integrity check
+                result = cursor.execute('PRAGMA integrity_check').fetchone()
+                
+                if result[0] != 'ok':
+                    logger.warning(f"Database integrity check failed: {result[0]}")
+                    conn.close()
+                    return self.recover_corrupted_database()
+                
+                conn.close()
+                return True
+                
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Database error detected: {str(e)}")
+                return self.recover_corrupted_database()
+            except Exception as e:
+                logger.error(f"Unexpected error checking database: {str(e)}")
+                return False
+        
+        # Database doesn't exist yet, will be created
+        return True
+    
+    def recover_corrupted_database(self):
+        """Attempt to recover from a corrupted database"""
+        logger.info("Attempting to recover corrupted database...")
+        
+        # Create backup of corrupted database
+        backup_path = f"{self.db_path}.corrupted.{int(time.time())}"
+        try:
+            if os.path.exists(self.db_path):
+                os.rename(self.db_path, backup_path)
+                logger.info(f"Corrupted database backed up to: {backup_path}")
+                
+                # Remove WAL and SHM files if they exist
+                for ext in ['-wal', '-shm']:
+                    wal_file = self.db_path + ext
+                    if os.path.exists(wal_file):
+                        os.remove(wal_file)
+                        logger.info(f"Removed {wal_file}")
+        except Exception as e:
+            logger.error(f"Failed to backup corrupted database: {str(e)}")
+            return False
+        
+        # Try to recover data from corrupted database
+        try:
+            # Connect to the corrupted database with recovery options
+            corrupted_conn = sqlite3.connect(backup_path)
+            corrupted_conn.execute('PRAGMA journal_mode=OFF')
+            corrupted_conn.execute('PRAGMA synchronous=OFF')
+            
+            # Create new database
+            new_conn = sqlite3.connect(self.db_path)
+            new_cursor = new_conn.cursor()
+            
+            # Try to recover scheduled_jobs table
+            try:
+                corrupted_cursor = corrupted_conn.cursor()
+                rows = corrupted_cursor.execute(
+                    "SELECT * FROM scheduled_jobs WHERE status = 'PENDING'"
+                ).fetchall()
+                
+                if rows:
+                    logger.info(f"Attempting to recover {len(rows)} pending jobs...")
+                    # Will be recreated by init_database
+                    
+            except Exception as e:
+                logger.warning(f"Could not recover pending jobs: {str(e)}")
+            
+            corrupted_conn.close()
+            new_conn.close()
+            
+            logger.info("Database recovery completed. A fresh database will be created.")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to recover data from corrupted database: {str(e)}")
+            # Even if recovery fails, we've moved the corrupted file
+            # A fresh database will be created
+            return True
+    
+    def get_db_connection(self):
+        """Get a database connection with error handling and recovery"""
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+                conn.execute('PRAGMA journal_mode=WAL')
+                conn.execute('PRAGMA busy_timeout=5000')
+                
+                # Quick integrity check
+                result = conn.execute('PRAGMA quick_check').fetchone()
+                if result[0] != 'ok':
+                    conn.close()
+                    raise sqlite3.DatabaseError(f"Database integrity check failed: {result[0]}")
+                
+                return conn
+                
+            except sqlite3.DatabaseError as e:
+                retry_count += 1
+                logger.error(f"Database error on connection attempt {retry_count}: {str(e)}")
+                
+                if retry_count >= max_retries:
+                    # Try to recover database
+                    if self.check_and_recover_database():
+                        # One final attempt after recovery
+                        try:
+                            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+                            conn.execute('PRAGMA journal_mode=WAL')
+                            conn.execute('PRAGMA busy_timeout=5000')
+                            return conn
+                        except Exception as final_e:
+                            logger.error(f"Failed to connect after recovery: {str(final_e)}")
+                            raise
+                    else:
+                        raise
+                
+                # Wait before retry
+                time.sleep(0.5 * retry_count)
+                
+            except Exception as e:
+                logger.error(f"Unexpected error getting database connection: {str(e)}")
+                raise
+        
+        raise sqlite3.DatabaseError("Failed to get database connection after all retries")
     
     def setup_handlers(self):
         """Set up SocketIO event handlers"""

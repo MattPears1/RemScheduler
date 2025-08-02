@@ -137,13 +137,61 @@ class ApiService {
   }
 
   async transcribeAudio(audioBlob: Blob): Promise<{ transcribed_text: string }> {
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
+    // Try the standard multipart endpoint first
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
 
-    const response = await fetch(`${this.baseUrl}/speech-to-task`, {
+      const response = await fetch(`${this.baseUrl}/speech-to-task`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      // If 503 or timeout, try base64 endpoint
+      if (response.status === 503 || response.status === 504) {
+        console.log('Multipart upload failed, trying base64 encoding...');
+        return await this.transcribeAudioBase64(audioBlob);
+      }
+
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to transcribe audio');
+    } catch (error) {
+      // If network error, try base64 as fallback
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        console.log('Network error, trying base64 encoding...');
+        return await this.transcribeAudioBase64(audioBlob);
+      }
+      throw error;
+    }
+  }
+
+  private async transcribeAudioBase64(audioBlob: Blob): Promise<{ transcribed_text: string }> {
+    // Convert blob to base64
+    const reader = new FileReader();
+    const base64Promise = new Promise<string>((resolve, reject) => {
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error('Failed to convert audio to base64'));
+        }
+      };
+      reader.onerror = reject;
+    });
+    
+    reader.readAsDataURL(audioBlob);
+    const base64Data = await base64Promise;
+
+    const response = await fetch(`${this.baseUrl}/speech-to-task-base64`, {
       method: 'POST',
+      headers: this.getHeaders(),
       credentials: 'include',
-      body: formData,
+      body: JSON.stringify({ audio: base64Data }),
     });
 
     if (!response.ok) {
@@ -155,4 +203,7 @@ class ApiService {
   }
 }
 
-export const apiService = new ApiService();
+const apiService = new ApiService();
+
+export { apiService };
+export default apiService;
