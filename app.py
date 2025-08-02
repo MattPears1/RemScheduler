@@ -25,7 +25,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # Initialize extensions
 from backend.db import db
+from flask_migrate import Migrate
 db.init_app(app)
+migrate = Migrate(app, db)
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 login_manager = LoginManager(app)
@@ -79,22 +81,20 @@ register_websocket_handlers_v2(socketio)
 with app.app_context():
     from backend.models import User, LocalAgent, Task, ScheduledJob, PresetProfile, SystemStatus
     
-    # Drop old tables (they're now managed by the agent)
-    try:
-        db.drop_all()
-        logger.info("Dropped existing tables")
-    except Exception as e:
-        logger.info(f"No existing tables to drop: {e}")
-    
+    # Create tables if they don't exist (don't drop existing data!)
     db.create_all()
     logger.info("Database tables created successfully")
     
-    # Create default user
-    default_user = User(username='matt')
-    default_user.set_password('aether2025')
-    db.session.add(default_user)
-    db.session.commit()
-    logger.info("Default user 'matt' created with password 'aether2025'")
+    # Create default user if it doesn't exist
+    default_user = User.query.filter_by(username='matt').first()
+    if not default_user:
+        default_user = User(username='matt')
+        default_user.set_password('aether2025')
+        db.session.add(default_user)
+        db.session.commit()
+        logger.info("Default user 'matt' created with password 'aether2025'")
+    else:
+        logger.info("Default user 'matt' already exists")
 
 # Note: Scheduler removed - now handled by local agent
 

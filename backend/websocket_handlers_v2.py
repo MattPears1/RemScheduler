@@ -2,7 +2,7 @@ from flask_socketio import emit, disconnect
 from flask import request, current_app
 from datetime import datetime
 from backend.db import db
-from backend.models import LocalAgent
+from backend.models import LocalAgent, ScheduledJob, User
 
 # Connected agents storage
 connected_agents = {}
@@ -54,6 +54,9 @@ def register_websocket_handlers_v2(socketio):
             connected_agents[request.sid] = agent
             agent_windows[agent.id] = []
             
+            # Load existing jobs from database
+            load_jobs_from_database(agent)
+            
             emit('auth_success', {'agent_id': agent.id})
             current_app.logger.info(f"Agent {agent.name} connected")
             
@@ -95,7 +98,7 @@ def register_websocket_handlers_v2(socketio):
     
     @socketio.on('agent_jobs_status')
     def handle_jobs_status(data):
-        """Receive job status from agent"""
+        """Receive job status from agent and persist to database"""
         try:
             if request.sid not in connected_agents:
                 return
@@ -105,6 +108,9 @@ def register_websocket_handlers_v2(socketio):
             
             # Store jobs for this agent
             agent_jobs[agent.id] = job_groups
+            
+            # Sync jobs to database
+            sync_jobs_to_database(agent.user_id, job_groups)
             
             # Broadcast to all connected web clients
             socketio.emit('jobs_updated', {
@@ -287,5 +293,100 @@ def register_websocket_handlers_v2(socketio):
         # Forward to all connected agents
         for sid in connected_agents:
             socketio.emit('get_transcripts', {}, room=sid)
+    
+    # Helper function to load jobs from database
+    def load_jobs_from_database(agent):
+        """Load pending jobs from database and send to agent"""
+        try:
+            # Get all pending jobs for this user
+            pending_jobs = ScheduledJob.query.filter_by(
+                user_id=agent.user_id,
+                status='PENDING'
+            ).order_by(ScheduledJob.scheduled_time).all()
+            
+            if pending_jobs:
+                # Group jobs by job_group_id
+                job_groups = {}
+                for job in pending_jobs:
+                    if job.job_group_id not in job_groups:
+                        job_groups[job.job_group_id] = []
+                    
+                    job_groups[job.job_group_id].append({
+                        'id': job.id,
+                        'message_text': job.message_text,
+                        'target_hwnd': job.target_hwnd,
+                        'target_title': job.target_title_snapshot,
+                        'scheduled_time': job.scheduled_time.isoformat(),
+                        'job_group_id': job.job_group_id
+                    })
+                
+                # Send each job group to agent
+                for group_id, jobs in job_groups.items():
+                    socketio.emit('schedule_job', {
+                        'job_group_id': group_id,
+                        'jobs': jobs
+                    }, room=request.sid)
+                    current_app.logger.info(f"Sent {len(jobs)} pending jobs (group {group_id}) to agent")
+        
+        except Exception as e:
+            current_app.logger.error(f"Error loading jobs from database: {str(e)}")
+    
+    # Helper function to sync jobs to database
+    def sync_jobs_to_database(user_id, job_groups):
+        """Sync job groups from agent to backend database"""
+        try:
+            # Get all job IDs from agent
+            agent_job_ids = set()
+            for group in job_groups:
+                for job in group.get('jobs', []):
+                    # Use combination of group_id and message as unique identifier
+                    agent_job_ids.add((job.get('job_group_id'), job.get('id')))
+            
+            # Mark missing jobs as deleted/cancelled if they were pending
+            existing_jobs = ScheduledJob.query.filter_by(user_id=user_id).all()
+            for job in existing_jobs:
+                if (job.job_group_id, job.id) not in agent_job_ids and job.status == 'PENDING':
+                    job.status = 'CANCELLED'
+                    current_app.logger.info(f"Marked job {job.id} as CANCELLED (not in agent)")
+            
+            # Update or create jobs from agent
+            for group in job_groups:
+                for job in group.get('jobs', []):
+                    # Find existing job or create new one
+                    existing_job = ScheduledJob.query.filter_by(
+                        user_id=user_id,
+                        job_group_id=job.get('job_group_id'),
+                        id=job.get('id')
+                    ).first()
+                    
+                    if existing_job:
+                        # Update existing job
+                        existing_job.status = job.get('status', 'PENDING')
+                        existing_job.error_message = job.get('error_message')
+                        if job.get('executed_at'):
+                            existing_job.executed_at = datetime.fromisoformat(job['executed_at'].replace('Z', '+00:00'))
+                    else:
+                        # Create new job
+                        new_job = ScheduledJob(
+                            user_id=user_id,
+                            job_group_id=job.get('job_group_id'),
+                            message_text=job.get('message_text', ''),
+                            target_hwnd=job.get('target_hwnd', 0),
+                            target_title_snapshot=job.get('target_title'),
+                            scheduled_time=datetime.fromisoformat(job['scheduled_time'].replace('Z', '+00:00')),
+                            status=job.get('status', 'PENDING'),
+                            error_message=job.get('error_message'),
+                            created_at=datetime.fromisoformat(job['created_at'].replace('Z', '+00:00')) if job.get('created_at') else datetime.utcnow()
+                        )
+                        if job.get('executed_at'):
+                            new_job.executed_at = datetime.fromisoformat(job['executed_at'].replace('Z', '+00:00'))
+                        db.session.add(new_job)
+            
+            db.session.commit()
+            current_app.logger.info(f"Synced {len(job_groups)} job groups to database")
+            
+        except Exception as e:
+            current_app.logger.error(f"Error syncing jobs to database: {str(e)}")
+            db.session.rollback()
     
     return socketio

@@ -201,10 +201,11 @@ def test_openai_connection():
 @api_routes_v2.route('/schedule', methods=['POST'])
 @login_required
 def schedule_job():
-    """Relay scheduling request to agent"""
+    """Relay scheduling request to agent and save to database"""
     try:
         data = request.json
         from app import socketio
+        from backend.models import ScheduledJob
         
         # Generate job group ID
         job_group_id = str(uuid.uuid4())
@@ -225,25 +226,58 @@ def schedule_job():
             messages = data['messages']
             for i, message in enumerate(messages[:repetitions]):
                 scheduled_time = start_time + timedelta(seconds=i * interval_seconds)
+                
+                # Save to database
+                db_job = ScheduledJob(
+                    user_id=current_user.id,
+                    job_group_id=job_group_id,
+                    message_text=message,
+                    target_hwnd=target_hwnd,
+                    target_title_snapshot=target_title,
+                    scheduled_time=scheduled_time,
+                    status='PENDING'
+                )
+                db.session.add(db_job)
+                
                 jobs.append({
+                    'id': db_job.id,
                     'message_text': message,
                     'target_hwnd': target_hwnd,
                     'target_title': target_title,
-                    'scheduled_time': scheduled_time.isoformat()
+                    'scheduled_time': scheduled_time.isoformat(),
+                    'job_group_id': job_group_id
                 })
         else:
             # Single message repeated
             message = data['message']
             for i in range(repetitions):
                 scheduled_time = start_time + timedelta(seconds=i * interval_seconds)
+                
+                # Save to database
+                db_job = ScheduledJob(
+                    user_id=current_user.id,
+                    job_group_id=job_group_id,
+                    message_text=message,
+                    target_hwnd=target_hwnd,
+                    target_title_snapshot=target_title,
+                    scheduled_time=scheduled_time,
+                    status='PENDING'
+                )
+                db.session.add(db_job)
+                
                 jobs.append({
+                    'id': db_job.id,
                     'message_text': message,
                     'target_hwnd': target_hwnd,
                     'target_title': target_title,
-                    'scheduled_time': scheduled_time.isoformat()
+                    'scheduled_time': scheduled_time.isoformat(),
+                    'job_group_id': job_group_id
                 })
         
-        # Send to agent
+        # Commit to database first
+        db.session.commit()
+        
+        # Then send to agent
         socketio.emit('schedule_job', {
             'job_group_id': job_group_id,
             'jobs': jobs

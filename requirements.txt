@@ -8,6 +8,7 @@ Flask-Login==0.6.3
 # Database
 psycopg2-binary==2.9.9
 SQLAlchemy==2.0.23
+Flask-Migrate==4.0.5
 
 # WebSockets
 python-socketio==5.10.0
