@@ -178,9 +178,18 @@ class LocalAgentV2:
                     if os.path.exists(wal_file):
                         os.remove(wal_file)
                         logger.info(f"Removed {wal_file}")
-        except Exception as e:
-            logger.error(f"Failed to backup corrupted database: {str(e)}")
-            return False
+        except OSError as e:
+            if e.errno == 32:  # WinError 32 - file in use
+                logger.error(f"Failed to backup corrupted database: {e}")
+                logger.error("Database file is locked by another process.")
+                logger.error("\nTO FIX THIS ISSUE:")
+                logger.error("1. Close ALL Python windows and this window")
+                logger.error("2. Run: emergency_fix.bat")
+                logger.error("3. Then run: run_agent_v2.bat")
+                raise RuntimeError("Database locked - manual intervention required")
+            else:
+                logger.error(f"Failed to backup corrupted database: {str(e)}")
+                return False
         
         # Try to recover data from corrupted database
         try:
@@ -864,8 +873,25 @@ class LocalAgentV2:
             self.sio.disconnect()
 
 def main():
-    agent = LocalAgentV2()
-    agent.run()
+    try:
+        agent = LocalAgentV2()
+        agent.run()
+    except RuntimeError as e:
+        logger.error(f"\n{'='*60}")
+        logger.error(f"FATAL ERROR: {str(e)}")
+        logger.error(f"{'='*60}\n")
+        input("Press Enter to exit...")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+        logger.error("\n" + "="*50)
+        logger.error("DATABASE FIX INSTRUCTIONS:")
+        logger.error("1. Close this window")
+        logger.error("2. Run: emergency_fix.bat")
+        logger.error("3. Then run: run_agent_v2.bat")
+        logger.error("="*50 + "\n")
+        input("Press Enter to exit...")
+        sys.exit(1)
 
 if __name__ == '__main__':
     main()
