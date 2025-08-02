@@ -25,7 +25,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className="flex flex-col h-screen bg-black">
       <Header />
       
-      <main className="flex-1 overflow-hidden relative">
+      <main className="flex-1 overflow-y-auto relative">
         {children || <Outlet />}
       </main>
 

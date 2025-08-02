@@ -1,7 +1,11 @@
 import { CreateTaskData, JobGroup, SavedMessage } from '@types';
 
 class ApiService {
-  private baseUrl = '/api';
+  private baseUrl: string;
+  
+  constructor() {
+    this.baseUrl = '/api';
+  }
   
   private getHeaders(): HeadersInit {
     return {
@@ -27,7 +31,8 @@ class ApiService {
 
   async getJobs(): Promise<JobGroup[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/jobs`, {
+      const url = `${this.baseUrl || '/api'}/jobs`;
+      const response = await fetch(url, {
         credentials: 'include',
         headers: this.getHeaders(),
       });
@@ -58,12 +63,16 @@ class ApiService {
   }
 
   async cancelJob(jobId: number): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/jobs/${jobId}`, {
+    const url = `${this.baseUrl || '/api'}/jobs/${jobId}`;
+    const response = await fetch(url, {
       method: 'DELETE',
       credentials: 'include',
+      headers: this.getHeaders(),
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Cancel job failed:', response.status, errorText);
       throw new Error('Failed to cancel job');
     }
   }
