@@ -662,3 +662,28 @@ def purge_all_jobs():
     except Exception as e:
         current_app.logger.error(f"Purge all jobs error: {str(e)}")
         return jsonify({'error': 'Failed to purge all jobs'}), 500
+
+@api_routes_v2.route('/agent/status', methods=['GET'])
+@login_required
+def get_agent_status():
+    """Get current agent connection status"""
+    try:
+        from backend.websocket_handlers_v2 import connected_agents
+        
+        agents = []
+        for sid, agent in connected_agents.items():
+            agents.append({
+                'id': agent.id,
+                'name': agent.name,
+                'connected': True,
+                'last_seen': agent.last_seen.isoformat() if agent.last_seen else None
+            })
+        
+        return jsonify({
+            'agents': agents,
+            'count': len(agents)
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Get agent status error: {str(e)}")
+        return jsonify({'error': 'Failed to get agent status'}), 500
