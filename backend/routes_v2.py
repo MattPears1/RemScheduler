@@ -439,12 +439,21 @@ def update_job(job_id):
 @api_routes_v2.route('/jobs/<int:job_id>', methods=['DELETE'])
 @login_required
 def cancel_job(job_id):
-    """Relay job cancellation to agent"""
+    """Relay job cancellation to agent and update database"""
     try:
         from app import socketio
+        from backend.models import ScheduledJob
+        
+        # Update job status in database
+        job = ScheduledJob.query.get(job_id)
+        if job and job.user_id == current_user.id:
+            job.status = 'CANCELLED'
+            db.session.commit()
+        
+        # Notify agent to cancel the job
         socketio.emit('cancel_job', {'job_id': job_id})
         
-        return jsonify({'message': 'Cancel request sent to agent'}), 200
+        return jsonify({'message': 'Job cancelled successfully'}), 200
         
     except Exception as e:
         current_app.logger.error(f"Cancel job error: {str(e)}")
