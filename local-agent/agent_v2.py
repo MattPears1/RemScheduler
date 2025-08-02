@@ -347,9 +347,7 @@ class LocalAgentV2:
     def handle_schedule_request(self, data):
         """Handle scheduling request from server"""
         try:
-            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-            conn.execute('PRAGMA journal_mode=WAL')
-            conn.execute('PRAGMA busy_timeout=5000')
+            conn = self.get_db_connection()
             cursor = conn.cursor()
             
             job_group_id = data['job_group_id']
@@ -419,9 +417,7 @@ class LocalAgentV2:
     
     def execute_job(self, job_id):
         """Execute a scheduled job"""
-        conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
-        conn.execute('PRAGMA journal_mode=WAL')
-        conn.execute('PRAGMA busy_timeout=5000')
+        conn = self.get_db_connection()
         cursor = conn.cursor()
         
         try:
