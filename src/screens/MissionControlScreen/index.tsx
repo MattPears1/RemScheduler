@@ -150,6 +150,36 @@ export const MissionControlScreen: React.FC = () => {
     },
   });
 
+  const deleteAllMutation = useMutation({
+    mutationFn: (status: 'PENDING' | 'EXPIRED' | 'SENT') => apiService.deleteAllByStatus(status),
+    onSuccess: (_, status) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      if (socket) {
+        socket.emit('get_jobs');
+      }
+      toast.success(`All ${status.toLowerCase()} jobs deleted`);
+    },
+    onError: (error: any, status: string) => {
+      console.error('Delete all error:', error);
+      toast.error(`Failed to delete all ${status.toLowerCase()} jobs`);
+    },
+  });
+
+  const purgeAllMutation = useMutation({
+    mutationFn: apiService.purgeAllJobs,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      if (socket) {
+        socket.emit('get_jobs');
+      }
+      toast.success('All jobs purged');
+    },
+    onError: (error) => {
+      console.error('Purge all error:', error);
+      toast.error('Failed to purge all jobs');
+    },
+  });
+
 
   if (isLoading) {
     return (
@@ -211,6 +241,42 @@ export const MissionControlScreen: React.FC = () => {
               </Button>
             </div>
           </div>
+        </motion.div>
+
+        {/* Action Buttons */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mb-4 flex gap-2"
+        >
+          {currentJobGroups.length > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete all ${viewMode} jobs?`)) {
+                  const status = viewMode === 'pending' ? 'PENDING' : 
+                               viewMode === 'expired' ? 'EXPIRED' : 'SENT';
+                  deleteAllMutation.mutate(status);
+                }
+              }}
+              disabled={deleteAllMutation.isPending}
+            >
+              Delete All {viewMode.charAt(0).toUpperCase() + viewMode.slice(1)}
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => {
+              if (confirm('Are you sure you want to purge ALL jobs from the system? This cannot be undone.')) {
+                purgeAllMutation.mutate();
+              }
+            }}
+            disabled={purgeAllMutation.isPending}
+          >
+            Purge All
+          </Button>
         </motion.div>
 
         {/* Job Groups */}

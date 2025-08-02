@@ -492,6 +492,72 @@ def reschedule_job(job_id):
         current_app.logger.error(f"Reschedule job error: {str(e)}")
         return jsonify({'error': 'Failed to reschedule job'}), 500
 
+@api_routes_v2.route('/jobs/delete-all/<status>', methods=['DELETE'])
+@login_required
+def delete_all_by_status(status):
+    """Delete all jobs with a specific status"""
+    try:
+        from app import socketio
+        from backend.models import ScheduledJob
+        
+        # Validate status
+        valid_statuses = ['PENDING', 'EXPIRED', 'SENT']
+        if status.upper() not in valid_statuses:
+            return jsonify({'error': 'Invalid status'}), 400
+        
+        # Delete from database
+        if status.upper() == 'EXPIRED':
+            # For expired, delete pending jobs with past scheduled time
+            now = datetime.utcnow()
+            ScheduledJob.query.filter(
+                ScheduledJob.user_id == current_user.id,
+                ScheduledJob.status == 'PENDING',
+                ScheduledJob.scheduled_time < now
+            ).delete()
+            # Also delete any explicitly marked as expired
+            ScheduledJob.query.filter(
+                ScheduledJob.user_id == current_user.id,
+                ScheduledJob.status == 'EXPIRED'
+            ).delete()
+        else:
+            # Delete all jobs with the specified status
+            ScheduledJob.query.filter(
+                ScheduledJob.user_id == current_user.id,
+                ScheduledJob.status == status.upper()
+            ).delete()
+        
+        db.session.commit()
+        
+        # Notify agent to delete all jobs with this status
+        socketio.emit('delete_all_by_status', {'status': status.upper()})
+        
+        return jsonify({'message': f'All {status} jobs deleted successfully'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Delete all by status error: {str(e)}")
+        return jsonify({'error': f'Failed to delete all {status} jobs'}), 500
+
+@api_routes_v2.route('/jobs/purge-all', methods=['DELETE'])
+@login_required
+def purge_all_jobs():
+    """Delete all jobs for the current user"""
+    try:
+        from app import socketio
+        from backend.models import ScheduledJob
+        
+        # Delete all jobs from database
+        ScheduledJob.query.filter_by(user_id=current_user.id).delete()
+        db.session.commit()
+        
+        # Notify agent to purge all jobs
+        socketio.emit('purge_all_jobs', {})
+        
+        return jsonify({'message': 'All jobs purged successfully'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Purge all jobs error: {str(e)}")
+        return jsonify({'error': 'Failed to purge all jobs'}), 500
+
 @api_routes_v2.route('/tasks', methods=['GET'])
 @login_required
 def get_tasks():
@@ -558,3 +624,41 @@ def get_windows():
     # This endpoint exists for compatibility but returns empty list
     # The frontend should rely on WebSocket updates instead
     return jsonify([])
+
+@api_routes_v2.route('/jobs/delete-all/<status>', methods=['DELETE'])
+@login_required
+def delete_all_by_status(status):
+    """Delete all jobs by status (PENDING, EXPIRED, SENT)"""
+    try:
+        from app import socketio
+        
+        # Validate status
+        valid_statuses = ['PENDING', 'EXPIRED', 'SENT']
+        status = status.upper()
+        if status not in valid_statuses:
+            return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
+        
+        # Send delete request to agent
+        socketio.emit('delete_all_by_status', {'status': status})
+        
+        return jsonify({'message': f'Delete all {status} jobs request sent to agent'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Delete all by status error: {str(e)}")
+        return jsonify({'error': f'Failed to delete all {status} jobs'}), 500
+
+@api_routes_v2.route('/jobs/purge-all', methods=['DELETE'])
+@login_required
+def purge_all_jobs():
+    """Purge all jobs from the system"""
+    try:
+        from app import socketio
+        
+        # Send purge request to agent
+        socketio.emit('purge_all_jobs', {})
+        
+        return jsonify({'message': 'Purge all jobs request sent to agent'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Purge all jobs error: {str(e)}")
+        return jsonify({'error': 'Failed to purge all jobs'}), 500

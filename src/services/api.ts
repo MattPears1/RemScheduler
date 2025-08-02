@@ -89,6 +89,34 @@ class ApiService {
     }
   }
 
+  async deleteAllByStatus(status: 'PENDING' | 'EXPIRED' | 'SENT'): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/jobs/delete-all/${status}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Delete all ${status} jobs failed:`, response.status, errorText);
+      throw new Error(`Failed to delete all ${status} jobs`);
+    }
+  }
+
+  async purgeAllJobs(): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/jobs/purge-all`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Purge all jobs failed:', response.status, errorText);
+      throw new Error('Failed to purge all jobs');
+    }
+  }
+
   async rescheduleJob(jobId: number, newTime: string): Promise<void> {
     const response = await fetch(`${this.baseUrl}/jobs/${jobId}/reschedule`, {
       method: 'POST',

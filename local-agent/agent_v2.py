@@ -369,6 +369,68 @@ class LocalAgentV2:
         def delete_transcript(data):
             """Delete a transcript"""
             self.delete_transcript(data['id'])
+        
+        @self.sio.event
+        def delete_all_by_status(data):
+            """Delete all jobs by status"""
+            status = data.get('status', '').upper()
+            logger.info(f"Deleting all jobs with status: {status}")
+            
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                # Delete from jobs table
+                cursor.execute('DELETE FROM jobs WHERE status = ?', (status,))
+                deleted_count = cursor.rowcount
+                
+                # If deleting SENT jobs, also remove from job_history
+                if status == 'SENT':
+                    cursor.execute('DELETE FROM job_history WHERE status = ?', (status,))
+                
+                conn.commit()
+                conn.close()
+                
+                logger.info(f"Deleted {deleted_count} jobs with status {status}")
+                
+                # Send updated job list
+                self.send_job_status()
+                
+            except Exception as e:
+                logger.error(f"Failed to delete all by status: {str(e)}")
+        
+        @self.sio.event
+        def purge_all_jobs(data):
+            """Purge all jobs from the system"""
+            logger.info("Purging all jobs from the system")
+            
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                # Delete all jobs
+                cursor.execute('DELETE FROM jobs')
+                jobs_deleted = cursor.rowcount
+                
+                # Delete all job history
+                cursor.execute('DELETE FROM job_history')
+                history_deleted = cursor.rowcount
+                
+                conn.commit()
+                conn.close()
+                
+                # Cancel all scheduled jobs
+                for job in self.scheduler.get_jobs():
+                    if job.id.startswith('job_'):
+                        self.scheduler.remove_job(job.id)
+                
+                logger.info(f"Purged {jobs_deleted} jobs and {history_deleted} history records")
+                
+                # Send empty job list
+                self.send_job_status()
+                
+            except Exception as e:
+                logger.error(f"Failed to purge all jobs: {str(e)}")
     
     def handle_schedule_request(self, data):
         """Handle scheduling request from server"""
