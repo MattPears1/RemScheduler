@@ -625,28 +625,6 @@ def get_windows():
     # The frontend should rely on WebSocket updates instead
     return jsonify([])
 
-@api_routes_v2.route('/jobs/delete-all/<status>', methods=['DELETE'])
-@login_required
-def delete_all_by_status(status):
-    """Delete all jobs by status (PENDING, EXPIRED, SENT)"""
-    try:
-        from app import socketio
-        
-        # Validate status
-        valid_statuses = ['PENDING', 'EXPIRED', 'SENT']
-        status = status.upper()
-        if status not in valid_statuses:
-            return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
-        
-        # Send delete request to agent
-        socketio.emit('delete_all_by_status', {'status': status})
-        
-        return jsonify({'message': f'Delete all {status} jobs request sent to agent'}), 200
-        
-    except Exception as e:
-        current_app.logger.error(f"Delete all by status error: {str(e)}")
-        return jsonify({'error': f'Failed to delete all {status} jobs'}), 500
-
 @api_routes_v2.route('/jobs/purge-all', methods=['DELETE'])
 @login_required
 def purge_all_jobs():
