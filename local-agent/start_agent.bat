@@ -48,15 +48,14 @@ if not exist ".deps_installed" (
 :: Check for database corruption
 if exist agent_jobs.db (
     echo Checking database integrity...
-    python -c "import sqlite3; try: conn = sqlite3.connect('agent_jobs.db'); conn.execute('PRAGMA integrity_check').fetchone(); conn.close(); exit(0)
-except: exit(1)" 2>nul
+    python -c "import sqlite3; conn = sqlite3.connect('agent_jobs.db'); conn.execute('PRAGMA integrity_check'); conn.close()" >nul 2>&1
     if %errorlevel% neq 0 (
         echo Database corruption detected, backing up and recreating...
         if exist agent_jobs.db.backup del agent_jobs.db.backup
-        move /Y agent_jobs.db agent_jobs.db.backup 2>nul
-        del /F /Q agent_jobs.db-wal 2>nul
-        del /F /Q agent_jobs.db-shm 2>nul
-        del /F /Q agent_jobs.db-journal 2>nul
+        move /Y agent_jobs.db agent_jobs.db.backup >nul 2>&1
+        del /F /Q agent_jobs.db-wal >nul 2>&1
+        del /F /Q agent_jobs.db-shm >nul 2>&1
+        del /F /Q agent_jobs.db-journal >nul 2>&1
         echo Database has been reset.
     )
 )
