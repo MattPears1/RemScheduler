@@ -83,8 +83,10 @@ export const MissionControlScreen: React.FC = () => {
   React.useEffect(() => {
     console.log('Socket jobs:', jobs);
     console.log('Query data:', queryResult.data);
-    console.log('Using jobGroups:', jobGroups);
-  }, [jobs, queryResult.data, jobGroups]);
+    console.log('Using pendingJobGroups:', pendingJobGroups);
+    console.log('Using expiredJobGroups:', expiredJobGroups);
+    console.log('Using sentJobGroups:', sentJobGroups);
+  }, [jobs, queryResult.data, pendingJobGroups, expiredJobGroups, sentJobGroups]);
   
   const handleRefresh = async () => {
     haptic.success();
@@ -113,21 +115,6 @@ export const MissionControlScreen: React.FC = () => {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: apiService.deleteJobHistory,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['jobs'] });
-      // Also request fresh data from socket
-      if (socket) {
-        socket.emit('get_jobs');
-      }
-      toast.success('Deleted from history');
-    },
-    onError: (error) => {
-      console.error('Delete job error:', error);  
-      toast.error('Failed to delete');
-    },
-  });
 
   const updateMutation = useMutation({
     mutationFn: ({ jobId, data }: any) => apiService.updateJob(jobId, data),
