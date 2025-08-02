@@ -21,7 +21,7 @@ export const MissionControlScreen: React.FC = () => {
   const { socket, windows, jobs } = useSocketStore();
   const [editingJob, setEditingJob] = useState<any>(null);
   const [rescheduleJob, setRescheduleJob] = useState<any>(null);
-  const [showSentJobs, setShowSentJobs] = useState(false);
+  const [viewMode, setViewMode] = useState<'pending' | 'expired' | 'sent'>('pending');
 
   // Use socket data directly if available, otherwise use query
   const queryResult = useQuery({
@@ -33,29 +33,32 @@ export const MissionControlScreen: React.FC = () => {
   // Prefer socket data over query data
   const allJobGroups = jobs && jobs.length > 0 ? jobs : (queryResult.data || []);
   
-  // Helper function to determine if a job is expired
-  const isJobExpired = (job: any) => {
-    return job.status === 'PENDING' && new Date(job.scheduled_time) < new Date();
-  };
-
-  // Filter and sort job groups
-  const jobGroups = allJobGroups
+  // Filter and sort job groups by status
+  const pendingJobGroups = allJobGroups
     .map((group: any) => ({
       ...group,
-      // Filter to only show pending jobs (including expired ones)
       jobs: group.jobs
-        .filter((job: any) => job.status === 'PENDING')
-        .map((job: any) => ({
-          ...job,
-          // Mark expired jobs with a computed status
-          effectiveStatus: isJobExpired(job) ? 'EXPIRED' : job.status
-        }))
-        // Sort by scheduled time (earliest first)
+        .filter((job: any) => 
+          job.status === 'PENDING' && new Date(job.scheduled_time) >= new Date()
+        )
         .sort((a: any, b: any) => 
           new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime()
         )
     }))
-    // Remove groups with no pending jobs
+    .filter((group: any) => group.jobs.length > 0);
+
+  const expiredJobGroups = allJobGroups
+    .map((group: any) => ({
+      ...group,
+      jobs: group.jobs
+        .filter((job: any) => 
+          (job.status === 'PENDING' && new Date(job.scheduled_time) < new Date()) ||
+          job.status === 'EXPIRED'
+        )
+        .sort((a: any, b: any) => 
+          new Date(b.scheduled_time).getTime() - new Date(a.scheduled_time).getTime()
+        )
+    }))
     .filter((group: any) => group.jobs.length > 0);
   
   const sentJobGroups = allJobGroups
@@ -172,8 +175,15 @@ export const MissionControlScreen: React.FC = () => {
     );
   }
 
-  const pendingCount = jobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
+  const pendingCount = pendingJobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
+  const expiredCount = expiredJobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
   const sentCount = sentJobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
+
+  // Get current job groups based on view mode
+  const currentJobGroups = 
+    viewMode === 'pending' ? pendingJobGroups :
+    viewMode === 'expired' ? expiredJobGroups :
+    sentJobGroups;
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -188,33 +198,51 @@ export const MissionControlScreen: React.FC = () => {
           <h1 className="text-2xl font-bold mb-2">Mission Control</h1>
           <div className="flex items-center justify-between">
             <p className="text-neutral-400">
-              {pendingCount} pending • {sentCount} sent
+              {pendingCount} pending • {expiredCount} expired • {sentCount} sent
             </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowSentJobs(!showSentJobs)}
-            >
-              {showSentJobs ? 'Show Pending' : 'Show Sent'}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant={viewMode === 'pending' ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('pending')}
+              >
+                Pending
+              </Button>
+              <Button
+                variant={viewMode === 'expired' ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('expired')}
+              >
+                Expired
+              </Button>
+              <Button
+                variant={viewMode === 'sent' ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('sent')}
+              >
+                Sent
+              </Button>
+            </div>
           </div>
         </motion.div>
 
         {/* Job Groups */}
         <AnimatePresence mode="wait">
-          {(showSentJobs ? sentJobGroups : jobGroups).length === 0 ? (
+          {currentJobGroups.length === 0 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="text-center py-12"
             >
               <p className="text-neutral-400">
-                {showSentJobs ? 'No sent messages' : 'No pending messages'}
+                {viewMode === 'pending' ? 'No pending messages' : 
+                 viewMode === 'expired' ? 'No expired messages' : 
+                 'No sent messages'}
               </p>
             </motion.div>
           ) : (
             <motion.div className="space-y-4">
-              {(showSentJobs ? sentJobGroups : jobGroups).map((group, groupIndex) => (
+              {currentJobGroups.map((group, groupIndex) => (
                 <motion.div
                   key={group.job_group_id}
                   initial={{ opacity: 0, y: 20 }}
@@ -227,10 +255,7 @@ export const MissionControlScreen: React.FC = () => {
                         {group.target_title || `Window ${group.target_hwnd}`}
                       </h3>
                       <p className="text-sm text-neutral-400 mt-1">
-                        {showSentJobs 
-                          ? `${group.jobs.length} sent messages`
-                          : `${group.jobs.length} pending messages`
-                        }
+                        {group.jobs.length} {viewMode} messages
                       </p>
                     </div>
                     
@@ -239,22 +264,15 @@ export const MissionControlScreen: React.FC = () => {
                         <SwipeableJobItem
                           key={job.id}
                           job={job}
-                          onEdit={() => setEditingJob(job)}
-                          onReschedule={() => setRescheduleJob(job)}
+                          onEdit={() => viewMode === 'pending' && setEditingJob(job)}
+                          onReschedule={() => viewMode === 'pending' && setRescheduleJob(job)}
                           onCancel={() => {
-                            if (job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') {
-                              cancelMutation.mutate(job.id);
-                            } else {
-                              toast.error('Can only cancel pending or expired jobs');
-                            }
+                            // Cancel/delete works for all statuses now
+                            cancelMutation.mutate(job.id);
                           }}
                           onDelete={() => {
-                            if (job.status === 'SENT') {
-                              deleteMutation.mutate(job.id);
-                            } else if (job.status === 'PENDING' || job.effectiveStatus === 'EXPIRED') {
-                              // For pending/expired jobs, use cancel instead
-                              cancelMutation.mutate(job.id);
-                            }
+                            // All deletes now use the same endpoint
+                            cancelMutation.mutate(job.id);
                           }}
                         />
                       ))}

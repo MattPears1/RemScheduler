@@ -380,20 +380,59 @@ class LocalAgentV2:
             jobs = data['jobs']
             
             for job in jobs:
-                # Insert job into database
-                cursor.execute('''
-                    INSERT INTO scheduled_jobs 
-                    (job_group_id, message_text, target_hwnd, target_title, scheduled_time)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (
-                    job_group_id,
-                    job['message_text'],
-                    job['target_hwnd'],
-                    job.get('target_title', ''),
-                    job['scheduled_time']
-                ))
+                # Check if job already exists (by id if provided, or by group_id + message + time)
+                job_id = job.get('id')
                 
-                job_id = cursor.lastrowid
+                if job_id:
+                    # Check if job with this ID already exists
+                    cursor.execute('SELECT id FROM scheduled_jobs WHERE id = ?', (job_id,))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        logger.info(f"Job {job_id} already exists, skipping")
+                        continue
+                else:
+                    # For new jobs without ID, check for duplicates by unique fields
+                    cursor.execute('''
+                        SELECT id FROM scheduled_jobs 
+                        WHERE job_group_id = ? AND message_text = ? AND scheduled_time = ?
+                    ''', (job_group_id, job['message_text'], job['scheduled_time']))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        job_id = existing[0]
+                        logger.info(f"Job already exists with ID {job_id}, skipping")
+                        continue
+                
+                # Insert job into database
+                if job_id:
+                    # Insert with specific ID (for jobs loaded from backend)
+                    cursor.execute('''
+                        INSERT INTO scheduled_jobs 
+                        (id, job_group_id, message_text, target_hwnd, target_title, scheduled_time)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        job_id,
+                        job_group_id,
+                        job['message_text'],
+                        job['target_hwnd'],
+                        job.get('target_title', ''),
+                        job['scheduled_time']
+                    ))
+                else:
+                    # Let SQLite generate ID for new jobs
+                    cursor.execute('''
+                        INSERT INTO scheduled_jobs 
+                        (job_group_id, message_text, target_hwnd, target_title, scheduled_time)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (
+                        job_group_id,
+                        job['message_text'],
+                        job['target_hwnd'],
+                        job.get('target_title', ''),
+                        job['scheduled_time']
+                    ))
+                    job_id = cursor.lastrowid
                 
                 # Schedule with APScheduler
                 # Parse ISO format datetime and convert to timezone-aware datetime
@@ -695,24 +734,31 @@ class LocalAgentV2:
         logger.info("Transcript saved locally")
     
     def delete_job_history(self, job_id):
-        """Delete job from history (only for SENT jobs)"""
+        """Delete job from history"""
         try:
             conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
             conn.execute('PRAGMA journal_mode=WAL')
             conn.execute('PRAGMA busy_timeout=5000')
             cursor = conn.cursor()
             
-            # Only delete if job is SENT
-            cursor.execute('DELETE FROM scheduled_jobs WHERE id = ? AND status = "SENT"', (job_id,))
+            # First, try to remove from scheduler if it's a pending job
+            try:
+                self.scheduler.remove_job(f"job_{job_id}")
+                logger.info(f"Removed job {job_id} from scheduler")
+            except:
+                pass  # Job might not be in scheduler
+            
+            # Delete job regardless of status
+            cursor.execute('DELETE FROM scheduled_jobs WHERE id = ?', (job_id,))
             
             if cursor.rowcount > 0:
                 conn.commit()
-                logger.info(f"Deleted job {job_id} from history")
+                logger.info(f"Deleted job {job_id} from database")
                 
                 # Update job status
                 self.send_job_status()
             else:
-                logger.warning(f"Job {job_id} not found or not in SENT status")
+                logger.warning(f"Job {job_id} not found in database")
             
             conn.close()
             
@@ -802,7 +848,7 @@ class LocalAgentV2:
         conn.close()
     
     def cleanup_old_messages(self):
-        """Delete sent messages older than 7 days"""
+        """Delete sent and expired messages older than 7 days"""
         try:
             conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES)
             conn.execute('PRAGMA journal_mode=WAL')
@@ -819,11 +865,22 @@ class LocalAgentV2:
                 AND executed_at < ?
             ''', (seven_days_ago.isoformat(),))
             
-            deleted_count = cursor.rowcount
+            sent_deleted = cursor.rowcount
             
-            if deleted_count > 0:
+            # Delete old expired messages
+            cursor.execute('''
+                DELETE FROM scheduled_jobs 
+                WHERE status = 'EXPIRED' 
+                AND scheduled_time < ?
+            ''', (seven_days_ago.isoformat(),))
+            
+            expired_deleted = cursor.rowcount
+            
+            total_deleted = sent_deleted + expired_deleted
+            
+            if total_deleted > 0:
                 conn.commit()
-                logger.info(f"Cleaned up {deleted_count} old sent messages")
+                logger.info(f"Cleaned up {total_deleted} old messages ({sent_deleted} sent, {expired_deleted} expired)")
                 # Update job status
                 self.send_job_status()
             else:

@@ -439,25 +439,25 @@ def update_job(job_id):
 @api_routes_v2.route('/jobs/<int:job_id>', methods=['DELETE'])
 @login_required
 def cancel_job(job_id):
-    """Relay job cancellation to agent and update database"""
+    """Delete job from both agent and database"""
     try:
         from app import socketio
         from backend.models import ScheduledJob
         
-        # Update job status in database
+        # Delete from database
         job = ScheduledJob.query.get(job_id)
         if job and job.user_id == current_user.id:
-            job.status = 'CANCELLED'
+            db.session.delete(job)
             db.session.commit()
         
-        # Notify agent to cancel the job
-        socketio.emit('cancel_job', {'job_id': job_id})
+        # Notify agent to delete the job
+        socketio.emit('delete_job_history', {'job_id': job_id})
         
-        return jsonify({'message': 'Job cancelled successfully'}), 200
+        return jsonify({'message': 'Job deleted successfully'}), 200
         
     except Exception as e:
-        current_app.logger.error(f"Cancel job error: {str(e)}")
-        return jsonify({'error': 'Failed to cancel job'}), 500
+        current_app.logger.error(f"Delete job error: {str(e)}")
+        return jsonify({'error': 'Failed to delete job'}), 500
 
 @api_routes_v2.route('/jobs/<int:job_id>/delete-history', methods=['DELETE'])
 @login_required

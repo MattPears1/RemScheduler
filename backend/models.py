@@ -68,7 +68,7 @@ class ScheduledJob(db.Model):
     target_hwnd = db.Column(db.BigInteger, nullable=False)
     target_title_snapshot = db.Column(db.String(255))
     scheduled_time = db.Column(db.DateTime(timezone=True), nullable=False)
-    status = db.Column(db.String(50), nullable=False, default='PENDING')  # PENDING, SENT, FAILED, CANCELLED
+    status = db.Column(db.String(50), nullable=False, default='PENDING')  # PENDING, SENT, FAILED, CANCELLED, EXPIRED
     error_message = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     executed_at = db.Column(db.DateTime)
