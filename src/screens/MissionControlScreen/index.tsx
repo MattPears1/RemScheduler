@@ -21,6 +21,7 @@ export const MissionControlScreen: React.FC = () => {
   const { socket, windows, jobs } = useSocketStore();
   const [editingJob, setEditingJob] = useState<any>(null);
   const [rescheduleJob, setRescheduleJob] = useState<any>(null);
+  const [showSentJobs, setShowSentJobs] = useState(false);
 
   // Use socket data directly if available, otherwise use query
   const queryResult = useQuery({
@@ -30,7 +31,38 @@ export const MissionControlScreen: React.FC = () => {
   });
   
   // Prefer socket data over query data
-  const jobGroups = jobs && jobs.length > 0 ? jobs : (queryResult.data || []);
+  const allJobGroups = jobs && jobs.length > 0 ? jobs : (queryResult.data || []);
+  
+  // Filter and sort job groups
+  const jobGroups = allJobGroups
+    .map((group: any) => ({
+      ...group,
+      // Filter to only show pending jobs
+      jobs: group.jobs
+        .filter((job: any) => job.status === 'PENDING')
+        // Sort by scheduled time (earliest first)
+        .sort((a: any, b: any) => 
+          new Date(a.scheduled_time).getTime() - new Date(b.scheduled_time).getTime()
+        )
+    }))
+    // Remove groups with no pending jobs
+    .filter((group: any) => group.jobs.length > 0);
+  
+  const sentJobGroups = allJobGroups
+    .map((group: any) => ({
+      ...group,
+      // Filter to only show sent jobs
+      jobs: group.jobs
+        .filter((job: any) => job.status === 'SENT')
+        // Sort by executed time (most recent first)
+        .sort((a: any, b: any) => 
+          new Date(b.executed_at || b.scheduled_time).getTime() - 
+          new Date(a.executed_at || a.scheduled_time).getTime()
+        )
+    }))
+    // Remove groups with no sent jobs
+    .filter((group: any) => group.jobs.length > 0);
+  
   const isLoading = queryResult.isLoading;
   const refetch = queryResult.refetch;
   
@@ -110,10 +142,8 @@ export const MissionControlScreen: React.FC = () => {
     );
   }
 
-  const totalJobs = jobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
-  const pendingJobs = jobGroups.reduce((sum, group) => 
-    sum + group.jobs.filter((job: any) => job.status === 'PENDING').length, 0
-  );
+  const pendingCount = jobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
+  const sentCount = sentJobGroups.reduce((sum, group) => sum + group.jobs.length, 0);
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
@@ -126,24 +156,35 @@ export const MissionControlScreen: React.FC = () => {
           className="mb-6"
         >
           <h1 className="text-2xl font-bold mb-2">Mission Control</h1>
-          <p className="text-neutral-400">
-            {totalJobs} total jobs • {pendingJobs} pending
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-neutral-400">
+              {pendingCount} pending • {sentCount} sent
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSentJobs(!showSentJobs)}
+            >
+              {showSentJobs ? 'Show Pending' : 'Show Sent'}
+            </Button>
+          </div>
         </motion.div>
 
         {/* Job Groups */}
-        <AnimatePresence>
-          {jobGroups.length === 0 ? (
+        <AnimatePresence mode="wait">
+          {(showSentJobs ? sentJobGroups : jobGroups).length === 0 ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="text-center py-12"
             >
-              <p className="text-neutral-400">No scheduled jobs</p>
+              <p className="text-neutral-400">
+                {showSentJobs ? 'No sent messages' : 'No pending messages'}
+              </p>
             </motion.div>
           ) : (
             <motion.div className="space-y-4">
-              {jobGroups.map((group, groupIndex) => (
+              {(showSentJobs ? sentJobGroups : jobGroups).map((group, groupIndex) => (
                 <motion.div
                   key={group.job_group_id}
                   initial={{ opacity: 0, y: 20 }}
@@ -156,7 +197,10 @@ export const MissionControlScreen: React.FC = () => {
                         {group.target_title || `Window ${group.target_hwnd}`}
                       </h3>
                       <p className="text-sm text-neutral-400 mt-1">
-                        {group.jobs.filter((j: any) => j.status === 'PENDING').length} of {group.jobs.length} pending
+                        {showSentJobs 
+                          ? `${group.jobs.length} sent messages`
+                          : `${group.jobs.length} pending messages`
+                        }
                       </p>
                     </div>
                     
@@ -167,8 +211,21 @@ export const MissionControlScreen: React.FC = () => {
                           job={job}
                           onEdit={() => setEditingJob(job)}
                           onReschedule={() => setRescheduleJob(job)}
-                          onCancel={() => cancelMutation.mutate(job.id)}
-                          onDelete={() => deleteMutation.mutate(job.id)}
+                          onCancel={() => {
+                            if (job.status === 'PENDING') {
+                              cancelMutation.mutate(job.id);
+                            } else {
+                              toast.error('Can only cancel pending jobs');
+                            }
+                          }}
+                          onDelete={() => {
+                            if (job.status === 'SENT') {
+                              deleteMutation.mutate(job.id);
+                            } else if (job.status === 'PENDING') {
+                              // For pending jobs, use cancel instead
+                              cancelMutation.mutate(job.id);
+                            }
+                          }}
                         />
                       ))}
                     </div>
